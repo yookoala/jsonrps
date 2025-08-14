@@ -409,3 +409,415 @@ func TestJSONDecoding_EdgeCases(t *testing.T) {
 		}
 	})
 }
+
+func TestJSONRPCResponse_MarshalResult(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    any
+		expected string
+	}{
+		{
+			name:     "marshal string",
+			input:    "hello world",
+			expected: `"hello world"`,
+		},
+		{
+			name:     "marshal number",
+			input:    42,
+			expected: `42`,
+		},
+		{
+			name:     "marshal float",
+			input:    3.14159,
+			expected: `3.14159`,
+		},
+		{
+			name:     "marshal boolean",
+			input:    true,
+			expected: `true`,
+		},
+		{
+			name:     "marshal null",
+			input:    nil,
+			expected: `null`,
+		},
+		{
+			name:     "marshal object",
+			input:    map[string]interface{}{"name": "John", "age": 30},
+			expected: `{"age":30,"name":"John"}`,
+		},
+		{
+			name:     "marshal array",
+			input:    []int{1, 2, 3},
+			expected: `[1,2,3]`,
+		},
+		{
+			name: "marshal complex object",
+			input: struct {
+				Name    string   `json:"name"`
+				Age     int      `json:"age"`
+				Hobbies []string `json:"hobbies"`
+			}{
+				Name:    "Alice",
+				Age:     25,
+				Hobbies: []string{"reading", "swimming"},
+			},
+			expected: `{"name":"Alice","age":25,"hobbies":["reading","swimming"]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var resp jsonrps.JSONRPCResponse
+
+			// Test MarshalResult
+			err := resp.MarshalResult(tt.input)
+			if err != nil {
+				t.Fatalf("MarshalResult failed: %v", err)
+			}
+
+			// Compare the marshaled result
+			var actual, expected interface{}
+			if err := json.Unmarshal(resp.Result, &actual); err != nil {
+				t.Fatalf("Failed to unmarshal actual result: %v", err)
+			}
+			if err := json.Unmarshal([]byte(tt.expected), &expected); err != nil {
+				t.Fatalf("Failed to unmarshal expected result: %v", err)
+			}
+
+			if !reflect.DeepEqual(actual, expected) {
+				t.Errorf("Result mismatch.\nActual:   %s\nExpected: %s", string(resp.Result), tt.expected)
+			}
+		})
+	}
+}
+
+func TestJSONRPCResponse_UnmarshalResult(t *testing.T) {
+	tests := []struct {
+		name     string
+		result   string
+		target   interface{}
+		expected interface{}
+	}{
+		{
+			name:     "unmarshal to string",
+			result:   `"hello world"`,
+			target:   new(string),
+			expected: "hello world",
+		},
+		{
+			name:     "unmarshal to int",
+			result:   `42`,
+			target:   new(int),
+			expected: 42,
+		},
+		{
+			name:     "unmarshal to float64",
+			result:   `3.14159`,
+			target:   new(float64),
+			expected: 3.14159,
+		},
+		{
+			name:     "unmarshal to bool",
+			result:   `true`,
+			target:   new(bool),
+			expected: true,
+		},
+		{
+			name:     "unmarshal to map",
+			result:   `{"name":"John","age":30}`,
+			target:   new(map[string]interface{}),
+			expected: map[string]interface{}{"name": "John", "age": float64(30)}, // JSON numbers become float64
+		},
+		{
+			name:     "unmarshal to slice",
+			result:   `[1,2,3]`,
+			target:   new([]any),
+			expected: []any{float64(1), float64(2), float64(3)}, // JSON numbers become float64
+		},
+		{
+			name:   "unmarshal to struct",
+			result: `{"name":"Alice","age":25,"hobbies":["reading","swimming"]}`,
+			target: new(struct {
+				Name    string   `json:"name"`
+				Age     int      `json:"age"`
+				Hobbies []string `json:"hobbies"`
+			}),
+			expected: struct {
+				Name    string   `json:"name"`
+				Age     int      `json:"age"`
+				Hobbies []string `json:"hobbies"`
+			}{
+				Name:    "Alice",
+				Age:     25,
+				Hobbies: []string{"reading", "swimming"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := jsonrps.JSONRPCResponse{
+				Result: json.RawMessage(tt.result),
+			}
+
+			// Test UnmarshalResult
+			err := resp.UnmarshalResult(tt.target)
+			if err != nil {
+				t.Fatalf("UnmarshalResult failed: %v", err)
+			}
+
+			// Get the actual value by dereferencing the pointer
+			actual := reflect.ValueOf(tt.target).Elem().Interface()
+
+			if !reflect.DeepEqual(actual, tt.expected) {
+				t.Errorf("Unmarshal mismatch.\nActual:   %+v\nExpected: %+v", actual, tt.expected)
+			}
+		})
+	}
+}
+
+func TestJSONRPCResponse_UnmarshalResult_NilResult(t *testing.T) {
+	resp := jsonrps.JSONRPCResponse{
+		Result: nil,
+	}
+
+	var target interface{}
+	err := resp.UnmarshalResult(&target)
+	if err != nil {
+		t.Fatalf("UnmarshalResult with nil result failed: %v", err)
+	}
+
+	if target != nil {
+		t.Errorf("Expected nil target, got %v", target)
+	}
+}
+
+func TestJSONRPCResponse_MarshalParams(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    any
+		expected string
+	}{
+		{
+			name:     "marshal string params",
+			input:    "test notification",
+			expected: `"test notification"`,
+		},
+		{
+			name:     "marshal array params",
+			input:    []any{"param1", 42, true},
+			expected: `["param1",42,true]`,
+		},
+		{
+			name:     "marshal object params",
+			input:    map[string]interface{}{"method": "subscribe", "topic": "events"},
+			expected: `{"method":"subscribe","topic":"events"}`,
+		},
+		{
+			name:     "marshal null params",
+			input:    nil,
+			expected: `null`,
+		},
+		{
+			name: "marshal subscription params",
+			input: map[string]interface{}{
+				"subscription": "sub-123",
+				"result":       map[string]interface{}{"status": "active"},
+			},
+			expected: `{"result":{"status":"active"},"subscription":"sub-123"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var resp jsonrps.JSONRPCResponse
+
+			// Test MarshalParams
+			err := resp.MarshalParams(tt.input)
+			if err != nil {
+				t.Fatalf("MarshalParams failed: %v", err)
+			}
+
+			// Compare the marshaled params
+			var actual, expected interface{}
+			if err := json.Unmarshal(resp.Params, &actual); err != nil {
+				t.Fatalf("Failed to unmarshal actual params: %v", err)
+			}
+			if err := json.Unmarshal([]byte(tt.expected), &expected); err != nil {
+				t.Fatalf("Failed to unmarshal expected params: %v", err)
+			}
+
+			if !reflect.DeepEqual(actual, expected) {
+				t.Errorf("Params mismatch.\nActual:   %s\nExpected: %s", string(resp.Params), tt.expected)
+			}
+		})
+	}
+}
+
+func TestJSONRPCResponse_UnmarshalParams(t *testing.T) {
+	tests := []struct {
+		name     string
+		params   string
+		target   interface{}
+		expected interface{}
+	}{
+		{
+			name:     "unmarshal string params",
+			params:   `"test notification"`,
+			target:   new(string),
+			expected: "test notification",
+		},
+		{
+			name:     "unmarshal array params",
+			params:   `["param1",42,true]`,
+			target:   new([]any),
+			expected: []any{"param1", float64(42), true}, // JSON numbers become float64
+		},
+		{
+			name:     "unmarshal object params",
+			params:   `{"method":"subscribe","topic":"events"}`,
+			target:   new(map[string]interface{}),
+			expected: map[string]interface{}{"method": "subscribe", "topic": "events"},
+		},
+		{
+			name:   "unmarshal subscription params",
+			params: `{"subscription":"sub-123","result":{"status":"active"}}`,
+			target: new(struct {
+				Subscription string                 `json:"subscription"`
+				Result       map[string]interface{} `json:"result"`
+			}),
+			expected: struct {
+				Subscription string                 `json:"subscription"`
+				Result       map[string]interface{} `json:"result"`
+			}{
+				Subscription: "sub-123",
+				Result:       map[string]interface{}{"status": "active"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := jsonrps.JSONRPCResponse{
+				Params: json.RawMessage(tt.params),
+			}
+
+			// Test UnmarshalParams
+			err := resp.UnmarshalParams(tt.target)
+			if err != nil {
+				t.Fatalf("UnmarshalParams failed: %v", err)
+			}
+
+			// Get the actual value by dereferencing the pointer
+			actual := reflect.ValueOf(tt.target).Elem().Interface()
+
+			if !reflect.DeepEqual(actual, tt.expected) {
+				t.Errorf("Unmarshal mismatch.\nActual:   %+v\nExpected: %+v", actual, tt.expected)
+			}
+		})
+	}
+}
+
+func TestJSONRPCResponse_UnmarshalParams_NilParams(t *testing.T) {
+	resp := jsonrps.JSONRPCResponse{
+		Params: nil,
+	}
+
+	var target interface{}
+	err := resp.UnmarshalParams(&target)
+	if err != nil {
+		t.Fatalf("UnmarshalParams with nil params failed: %v", err)
+	}
+
+	if target != nil {
+		t.Errorf("Expected nil target, got %v", target)
+	}
+}
+
+func TestJSONRPCResponse_MarshalUnmarshal_RoundTrip(t *testing.T) {
+	// Test round-trip marshal/unmarshal for both Result and Params
+	t.Run("result round-trip", func(t *testing.T) {
+		original := map[string]interface{}{
+			"users": []any{
+				map[string]interface{}{"id": 1, "name": "Alice"},
+				map[string]interface{}{"id": 2, "name": "Bob"},
+			},
+			"total": 2,
+		}
+
+		var resp jsonrps.JSONRPCResponse
+
+		// Marshal
+		if err := resp.MarshalResult(original); err != nil {
+			t.Fatalf("MarshalResult failed: %v", err)
+		}
+
+		// Unmarshal
+		var decoded map[string]interface{}
+		if err := resp.UnmarshalResult(&decoded); err != nil {
+			t.Fatalf("UnmarshalResult failed: %v", err)
+		}
+
+		// Note: JSON numbers become float64, so we need to adjust expectations
+		expected := map[string]interface{}{
+			"users": []any{
+				map[string]interface{}{"id": float64(1), "name": "Alice"},
+				map[string]interface{}{"id": float64(2), "name": "Bob"},
+			},
+			"total": float64(2),
+		}
+
+		if !reflect.DeepEqual(decoded, expected) {
+			t.Errorf("Round-trip result mismatch.\nActual:   %+v\nExpected: %+v", decoded, expected)
+		}
+	})
+
+	t.Run("params round-trip", func(t *testing.T) {
+		original := []any{"method_name", map[string]interface{}{"arg1": "value1", "arg2": 42}}
+
+		var resp jsonrps.JSONRPCResponse
+
+		// Marshal
+		if err := resp.MarshalParams(original); err != nil {
+			t.Fatalf("MarshalParams failed: %v", err)
+		}
+
+		// Unmarshal
+		var decoded []any
+		if err := resp.UnmarshalParams(&decoded); err != nil {
+			t.Fatalf("UnmarshalParams failed: %v", err)
+		}
+
+		// Note: JSON numbers become float64
+		expected := []any{"method_name", map[string]interface{}{"arg1": "value1", "arg2": float64(42)}}
+
+		if !reflect.DeepEqual(decoded, expected) {
+			t.Errorf("Round-trip params mismatch.\nActual:   %+v\nExpected: %+v", decoded, expected)
+		}
+	})
+}
+
+func TestJSONRPCResponse_MarshalErrors(t *testing.T) {
+	// Test marshaling values that can't be marshaled to JSON
+	t.Run("marshal result with channel", func(t *testing.T) {
+		var resp jsonrps.JSONRPCResponse
+		ch := make(chan int)
+		defer close(ch)
+
+		err := resp.MarshalResult(ch)
+		if err == nil {
+			t.Error("Expected error when marshaling channel, got nil")
+		}
+	})
+
+	t.Run("marshal params with function", func(t *testing.T) {
+		var resp jsonrps.JSONRPCResponse
+		fn := func() {}
+
+		err := resp.MarshalParams(fn)
+		if err == nil {
+			t.Error("Expected error when marshaling function, got nil")
+		}
+	})
+}

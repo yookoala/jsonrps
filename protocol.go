@@ -51,3 +51,39 @@ type JSONRPCResponse struct {
 	// Params is the parameters for the subscription notification
 	Params json.RawMessage `json:"params,omitempty"`
 }
+
+// MarshalResult convert v into JSON string and store in the Result field
+func (r *JSONRPCResponse) MarshalResult(v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	r.Result = data
+	return nil
+}
+
+// UnmarshalResult converts the JSON string in the Result field back into the original value
+func (r *JSONRPCResponse) UnmarshalResult(v any) error {
+	if r.Result == nil {
+		return json.Unmarshal([]byte("null"), v)
+	}
+	return json.Unmarshal(r.Result, v)
+}
+
+// MarshalParams converts v into JSON string and store in the Params field
+func (r *JSONRPCResponse) MarshalParams(v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	r.Params = data
+	return nil
+}
+
+// UnmarshalParams converts the JSON string in the Params field back into the original value
+func (r *JSONRPCResponse) UnmarshalParams(v any) error {
+	if r.Params == nil {
+		return json.Unmarshal([]byte("null"), v)
+	}
+	return json.Unmarshal(r.Params, v)
+}
