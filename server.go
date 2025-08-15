@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	DefaultProtocolSignature = "JSON-RPC/1.0"
+	DefaultProtocolSignature = "JSONRPS/1.0"
 )
 
 // HandleServerConn provides default connection handling logic of server.
