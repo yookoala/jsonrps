@@ -40,5 +40,11 @@ func HandleServerConn(c net.Conn, r ServerSessionRouter) {
 		}
 	}
 
+	// Write protocol signature after receiving all headers but not blocking
+	// session handler's take over
+	go func() {
+		c.Write([]byte(DefaultProtocolSignature + " 200 OK\r\n\r\n"))
+	}()
+
 	r.HandleSession(sess)
 }

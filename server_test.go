@@ -129,6 +129,33 @@ func TestHandleServerConn_ValidHeaders(t *testing.T) {
 	}
 }
 
+func TestHandleServerConn_SuccessResponse(t *testing.T) {
+	// Test that a 200 OK response is written for successful header parsing
+	testData := "Content-Type: application/json\r\n\n"
+
+	mockConn := NewMockConnection(testData)
+	mockHandler := &MockSessionHandler{canHandle: true}
+	router := jsonrps.ServerSessionRouter{mockHandler}
+
+	// Execute the function
+	jsonrps.HandleServerConn(mockConn, router)
+
+	// Give the goroutine time to execute
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify that a 200 OK response was written
+	expectedResponse := jsonrps.DefaultProtocolSignature + " 200 OK\r\n\r\n"
+	writtenData := mockConn.GetWritten()
+	if writtenData != expectedResponse {
+		t.Errorf("Expected response %q, got %q", expectedResponse, writtenData)
+	}
+
+	// Verify the session was still handled
+	if mockHandler.sessionHandled == nil {
+		t.Fatal("Expected session to be handled")
+	}
+}
+
 func TestHandleServerConn_EmptyHeaders(t *testing.T) {
 	// Test with just the terminating newline
 	testData := "\n"
@@ -154,6 +181,14 @@ func TestHandleServerConn_EmptyHeaders(t *testing.T) {
 	if len(session.Headers) != 0 {
 		t.Errorf("Expected no headers, got %d", len(session.Headers))
 	}
+
+	// Give the goroutine time to execute and verify 200 OK response
+	time.Sleep(10 * time.Millisecond)
+	expectedResponse := jsonrps.DefaultProtocolSignature + " 200 OK\r\n\r\n"
+	writtenData := mockConn.GetWritten()
+	if writtenData != expectedResponse {
+		t.Errorf("Expected response %q, got %q", expectedResponse, writtenData)
+	}
 }
 
 func TestHandleServerConn_MalformedHeader(t *testing.T) {
@@ -173,6 +208,13 @@ func TestHandleServerConn_MalformedHeader(t *testing.T) {
 		t.Errorf("Expected response %q, got %q", expectedResponse, writtenData)
 	}
 
+	// Wait a bit to ensure no 200 OK response is written by a goroutine
+	time.Sleep(10 * time.Millisecond)
+	writtenDataAfterWait := mockConn.GetWritten()
+	if writtenDataAfterWait != expectedResponse {
+		t.Errorf("Expected response to remain %q after wait, got %q", expectedResponse, writtenDataAfterWait)
+	}
+
 	// Verify connection was closed
 	if !mockConn.closed {
 		t.Error("Expected connection to be closed after malformed header")
@@ -181,6 +223,37 @@ func TestHandleServerConn_MalformedHeader(t *testing.T) {
 	// Verify session was not handled
 	if mockHandler.sessionHandled != nil {
 		t.Error("Expected session not to be handled due to malformed header")
+	}
+}
+
+func TestHandleServerConn_AsyncResponseBehavior(t *testing.T) {
+	// Test that the session is handled before the 200 OK response is written
+	testData := "Content-Type: application/json\r\n\n"
+
+	mockConn := NewMockConnection(testData)
+	mockHandler := &MockSessionHandler{canHandle: true}
+	router := jsonrps.ServerSessionRouter{mockHandler}
+
+	// Execute the function
+	jsonrps.HandleServerConn(mockConn, router)
+
+	// The session should be handled immediately (synchronously)
+	if mockHandler.sessionHandled == nil {
+		t.Fatal("Expected session to be handled immediately")
+	}
+
+	// But the response should not be written yet (it's in a goroutine)
+	writtenData := mockConn.GetWritten()
+	if writtenData != "" {
+		t.Errorf("Expected no response to be written immediately, got %q", writtenData)
+	}
+
+	// After waiting, the 200 OK response should be written
+	time.Sleep(10 * time.Millisecond)
+	expectedResponse := jsonrps.DefaultProtocolSignature + " 200 OK\r\n\r\n"
+	writtenDataAfterWait := mockConn.GetWritten()
+	if writtenDataAfterWait != expectedResponse {
+		t.Errorf("Expected response %q after wait, got %q", expectedResponse, writtenDataAfterWait)
 	}
 }
 
