@@ -410,10 +410,7 @@ func TestSession_WithRealConnOperations(t *testing.T) {
 	}
 
 	session := &jsonrps.Session{
-		ProtocolSignature: "Test Protocol 1.0",
-		Headers:           http.Header{"Content-Type": []string{"application/json"}},
-		Context:           context.Background(),
-		Conn:              conn,
+		Conn: conn,
 	}
 
 	// Test writing to the connection

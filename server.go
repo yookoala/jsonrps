@@ -11,9 +11,9 @@ const (
 	DefaultProtocolSignature = "JSONRPS/1.0"
 )
 
-// HandleServerConn provides default connection handling logic of server.
-func HandleServerConn(c net.Conn, r ServerSessionRouter) {
-	sess := &Session{
+// InitializeServerConn provides default connection handling logic of server.
+func InitializeServerConn(c net.Conn) (sess *Session, err error) {
+	s := &Session{
 		ProtocolSignature: DefaultProtocolSignature,
 		Conn:              c,
 		Headers:           make(http.Header),
@@ -21,8 +21,9 @@ func HandleServerConn(c net.Conn, r ServerSessionRouter) {
 
 	// Read each line as if it is HTTP header into sess.Headers
 	// and stop when reaching "\n\n"
+	var line string
 	for {
-		line, err := bufio.NewReader(c).ReadString('\n')
+		line, err = bufio.NewReader(c).ReadString('\n')
 		if err != nil {
 			break
 		}
@@ -36,7 +37,7 @@ func HandleServerConn(c net.Conn, r ServerSessionRouter) {
 			return
 		}
 		if len(parts) == 2 {
-			sess.Headers.Add(parts[0], strings.TrimSpace(parts[1]))
+			s.Headers.Add(parts[0], strings.TrimSpace(parts[1]))
 		}
 	}
 
@@ -46,5 +47,6 @@ func HandleServerConn(c net.Conn, r ServerSessionRouter) {
 		c.Write([]byte(DefaultProtocolSignature + " 200 OK\r\n\r\n"))
 	}()
 
-	r.HandleSession(sess)
+	sess = s
+	return
 }

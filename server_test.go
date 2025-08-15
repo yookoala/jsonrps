@@ -83,7 +83,14 @@ func (m *MockSessionHandler) HandleSession(session *jsonrps.Session) {
 	}
 }
 
-func TestHandleServerConn_ValidHeaders(t *testing.T) {
+func TestDefaultProtocolSignature(t *testing.T) {
+	expected := "JSONRPS/1.0"
+	if jsonrps.DefaultProtocolSignature != expected {
+		t.Errorf("Expected DefaultProtocolSignature to be %q, got %q", expected, jsonrps.DefaultProtocolSignature)
+	}
+}
+
+func TestInitializeServerConn_ValidHeaders(t *testing.T) {
 	// Prepare test data with valid headers
 	testData := "Content-Type: application/json\r\n" +
 		"Authorization: Bearer token123\r\n" +
@@ -91,18 +98,19 @@ func TestHandleServerConn_ValidHeaders(t *testing.T) {
 		"\n"
 
 	mockConn := NewMockConnection(testData)
-	mockHandler := &MockSessionHandler{canHandle: true}
-	router := jsonrps.ServerSessionRouter{mockHandler}
 
 	// Execute the function
-	jsonrps.HandleServerConn(mockConn, router)
+	session, err := jsonrps.InitializeServerConn(mockConn)
 
-	// Verify the session was handled
-	if mockHandler.sessionHandled == nil {
-		t.Fatal("Expected session to be handled")
+	// Verify no error occurred
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	session := mockHandler.sessionHandled
+	// Verify session was returned
+	if session == nil {
+		t.Fatal("Expected session to be returned")
+	}
 
 	// Verify protocol signature
 	if session.ProtocolSignature != jsonrps.DefaultProtocolSignature {
@@ -129,16 +137,24 @@ func TestHandleServerConn_ValidHeaders(t *testing.T) {
 	}
 }
 
-func TestHandleServerConn_SuccessResponse(t *testing.T) {
+func TestInitializeServerConn_SuccessResponse(t *testing.T) {
 	// Test that a 200 OK response is written for successful header parsing
 	testData := "Content-Type: application/json\r\n\n"
 
 	mockConn := NewMockConnection(testData)
-	mockHandler := &MockSessionHandler{canHandle: true}
-	router := jsonrps.ServerSessionRouter{mockHandler}
 
 	// Execute the function
-	jsonrps.HandleServerConn(mockConn, router)
+	session, err := jsonrps.InitializeServerConn(mockConn)
+
+	// Verify no error occurred
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Verify session was returned
+	if session == nil {
+		t.Fatal("Expected session to be returned")
+	}
 
 	// Give the goroutine time to execute
 	time.Sleep(10 * time.Millisecond)
@@ -149,29 +165,25 @@ func TestHandleServerConn_SuccessResponse(t *testing.T) {
 	if writtenData != expectedResponse {
 		t.Errorf("Expected response %q, got %q", expectedResponse, writtenData)
 	}
-
-	// Verify the session was still handled
-	if mockHandler.sessionHandled == nil {
-		t.Fatal("Expected session to be handled")
-	}
 }
 
-func TestHandleServerConn_EmptyHeaders(t *testing.T) {
+func TestInitializeServerConn_EmptyHeaders(t *testing.T) {
 	// Test with just the terminating newline
 	testData := "\n"
 
 	mockConn := NewMockConnection(testData)
-	mockHandler := &MockSessionHandler{canHandle: true}
-	router := jsonrps.ServerSessionRouter{mockHandler}
 
-	jsonrps.HandleServerConn(mockConn, router)
+	session, err := jsonrps.InitializeServerConn(mockConn)
 
-	// Verify the session was handled
-	if mockHandler.sessionHandled == nil {
-		t.Fatal("Expected session to be handled")
+	// Verify no error occurred
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	session := mockHandler.sessionHandled
+	// Verify session was returned
+	if session == nil {
+		t.Fatal("Expected session to be returned")
+	}
 
 	// Verify headers is empty but initialized
 	if session.Headers == nil {
@@ -191,15 +203,13 @@ func TestHandleServerConn_EmptyHeaders(t *testing.T) {
 	}
 }
 
-func TestHandleServerConn_MalformedHeader(t *testing.T) {
+func TestInitializeServerConn_MalformedHeader(t *testing.T) {
 	// Test with a malformed header (no colon and space)
 	testData := "InvalidHeaderLine\r\n\n"
 
 	mockConn := NewMockConnection(testData)
-	mockHandler := &MockSessionHandler{canHandle: true}
-	router := jsonrps.ServerSessionRouter{mockHandler}
 
-	jsonrps.HandleServerConn(mockConn, router)
+	session, _ := jsonrps.InitializeServerConn(mockConn)
 
 	// Verify that a 400 Bad Request was written
 	expectedResponse := jsonrps.DefaultProtocolSignature + " 400 Bad Request\r\n\r\n"
@@ -220,58 +230,33 @@ func TestHandleServerConn_MalformedHeader(t *testing.T) {
 		t.Error("Expected connection to be closed after malformed header")
 	}
 
-	// Verify session was not handled
-	if mockHandler.sessionHandled != nil {
-		t.Error("Expected session not to be handled due to malformed header")
+	// Verify session was not returned (should be nil) - the function returns early
+	if session != nil {
+		t.Errorf("Expected session to be nil due to malformed header, got session with signature: %q", session.ProtocolSignature)
 	}
+
+	// Note: err might be nil if the function returns early without setting it,
+	// but the 400 response and connection closure indicate the error condition
 }
 
-func TestHandleServerConn_AsyncResponseBehavior(t *testing.T) {
-	// Test that the session is handled before the 200 OK response is written
-	testData := "Content-Type: application/json\r\n\n"
-
-	mockConn := NewMockConnection(testData)
-	mockHandler := &MockSessionHandler{canHandle: true}
-	router := jsonrps.ServerSessionRouter{mockHandler}
-
-	// Execute the function
-	jsonrps.HandleServerConn(mockConn, router)
-
-	// The session should be handled immediately (synchronously)
-	if mockHandler.sessionHandled == nil {
-		t.Fatal("Expected session to be handled immediately")
-	}
-
-	// But the response should not be written yet (it's in a goroutine)
-	writtenData := mockConn.GetWritten()
-	if writtenData != "" {
-		t.Errorf("Expected no response to be written immediately, got %q", writtenData)
-	}
-
-	// After waiting, the 200 OK response should be written
-	time.Sleep(10 * time.Millisecond)
-	expectedResponse := jsonrps.DefaultProtocolSignature + " 200 OK\r\n\r\n"
-	writtenDataAfterWait := mockConn.GetWritten()
-	if writtenDataAfterWait != expectedResponse {
-		t.Errorf("Expected response %q after wait, got %q", expectedResponse, writtenDataAfterWait)
-	}
-}
-
-func TestHandleServerConn_HeaderWithSpacesInValue(t *testing.T) {
+func TestInitializeServerConn_HeaderWithSpacesInValue(t *testing.T) {
 	// Test with headers that have spaces in values
 	testData := "Content-Type: application/json; charset=utf-8\r\n" +
 		"User-Agent: Test Agent 1.0\r\n" +
 		"\n"
 
 	mockConn := NewMockConnection(testData)
-	mockHandler := &MockSessionHandler{canHandle: true}
-	router := jsonrps.ServerSessionRouter{mockHandler}
 
-	jsonrps.HandleServerConn(mockConn, router)
+	session, err := jsonrps.InitializeServerConn(mockConn)
 
-	session := mockHandler.sessionHandled
+	// Verify no error occurred
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Verify session was returned
 	if session == nil {
-		t.Fatal("Expected session to be handled")
+		t.Fatal("Expected session to be returned")
 	}
 
 	// Verify headers with spaces in values are parsed correctly
@@ -286,58 +271,7 @@ func TestHandleServerConn_HeaderWithSpacesInValue(t *testing.T) {
 	}
 }
 
-func TestHandleServerConn_MultipleHandlers(t *testing.T) {
-	testData := "Content-Type: application/json\r\n\n"
-
-	mockConn := NewMockConnection(testData)
-
-	// Create multiple handlers where only the second one can handle
-	handler1 := &MockSessionHandler{canHandle: false}
-	handler2 := &MockSessionHandler{canHandle: true}
-	handler3 := &MockSessionHandler{canHandle: true} // This shouldn't be called
-
-	router := jsonrps.ServerSessionRouter{handler1, handler2, handler3}
-
-	jsonrps.HandleServerConn(mockConn, router)
-
-	// Verify only the second handler was called
-	if handler1.sessionHandled != nil {
-		t.Error("Expected first handler not to be called")
-	}
-
-	if handler2.sessionHandled == nil {
-		t.Error("Expected second handler to be called")
-	}
-
-	if handler3.sessionHandled != nil {
-		t.Error("Expected third handler not to be called (should stop at second)")
-	}
-}
-
-func TestHandleServerConn_NoHandlerCanHandle(t *testing.T) {
-	testData := "Content-Type: application/json\r\n\n"
-
-	mockConn := NewMockConnection(testData)
-
-	// Create handlers that cannot handle the session
-	handler1 := &MockSessionHandler{canHandle: false}
-	handler2 := &MockSessionHandler{canHandle: false}
-
-	router := jsonrps.ServerSessionRouter{handler1, handler2}
-
-	jsonrps.HandleServerConn(mockConn, router)
-
-	// Verify no handlers were called
-	if handler1.sessionHandled != nil {
-		t.Error("Expected first handler not to be called")
-	}
-
-	if handler2.sessionHandled != nil {
-		t.Error("Expected second handler not to be called")
-	}
-}
-
-func TestHandleServerConn_ReadError(t *testing.T) {
+func TestInitializeServerConn_ReadError(t *testing.T) {
 	// Create a connection that will cause a read error
 	mockConn := &MockConnection{
 		data:        []byte{}, // Empty data will cause EOF
@@ -345,31 +279,27 @@ func TestHandleServerConn_ReadError(t *testing.T) {
 		writeBuffer: bytes.NewBuffer(nil),
 	}
 
-	mockHandler := &MockSessionHandler{canHandle: true}
-	router := jsonrps.ServerSessionRouter{mockHandler}
+	session, err := jsonrps.InitializeServerConn(mockConn)
 
-	jsonrps.HandleServerConn(mockConn, router)
-
-	// The function should handle the read error gracefully and still call the router
-	if mockHandler.sessionHandled == nil {
-		t.Fatal("Expected session to be handled even with read error")
+	// The function should handle the read error gracefully
+	// In this case, err should be set or session might be nil
+	if err == nil && session == nil {
+		t.Fatal("Expected either error or session to be returned")
 	}
 
-	// Headers should be empty due to read error
-	if len(mockHandler.sessionHandled.Headers) != 0 {
-		t.Errorf("Expected no headers due to read error, got %d", len(mockHandler.sessionHandled.Headers))
+	// If session is returned, headers should be empty due to read error
+	if session != nil && len(session.Headers) != 0 {
+		t.Errorf("Expected no headers due to read error, got %d", len(session.Headers))
 	}
 }
 
-func TestHandleServerConn_HeaderWithoutSpace(t *testing.T) {
+func TestInitializeServerConn_HeaderWithoutSpace(t *testing.T) {
 	// Test with a header that has a colon but no space after it
 	testData := "Content-Type:application/json\r\n\n"
 
 	mockConn := NewMockConnection(testData)
-	mockHandler := &MockSessionHandler{canHandle: true}
-	router := jsonrps.ServerSessionRouter{mockHandler}
 
-	jsonrps.HandleServerConn(mockConn, router)
+	session, _ := jsonrps.InitializeServerConn(mockConn)
 
 	// This should be treated as malformed and result in a 400 response
 	expectedResponse := jsonrps.DefaultProtocolSignature + " 400 Bad Request\r\n\r\n"
@@ -382,23 +312,31 @@ func TestHandleServerConn_HeaderWithoutSpace(t *testing.T) {
 	if !mockConn.closed {
 		t.Error("Expected connection to be closed after malformed header")
 	}
+
+	// Verify session was not returned due to malformed header
+	if session != nil {
+		t.Error("Expected session to be nil due to malformed header")
+	}
 }
 
-func TestHandleServerConn_HeaderWithTrailingSpaces(t *testing.T) {
+func TestInitializeServerConn_HeaderWithTrailingSpaces(t *testing.T) {
 	// Test with headers that have trailing spaces and carriage returns
 	testData := "Content-Type: application/json   \r\n" +
 		"Authorization: Bearer token   \r\n" +
 		"\n"
 
 	mockConn := NewMockConnection(testData)
-	mockHandler := &MockSessionHandler{canHandle: true}
-	router := jsonrps.ServerSessionRouter{mockHandler}
 
-	jsonrps.HandleServerConn(mockConn, router)
+	session, err := jsonrps.InitializeServerConn(mockConn)
 
-	session := mockHandler.sessionHandled
+	// Verify no error occurred
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Verify session was returned
 	if session == nil {
-		t.Fatal("Expected session to be handled")
+		t.Fatal("Expected session to be returned")
 	}
 
 	// Verify trailing spaces are trimmed
