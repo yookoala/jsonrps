@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ type MockConnection struct {
 	data          []byte
 	position      int
 	writeBuffer   *bytes.Buffer
+	writeBufferMu sync.Mutex
 	closeCallback func()
 	closed        bool
 }
@@ -44,6 +46,8 @@ func (m *MockConnection) Read(b []byte) (n int, err error) {
 }
 
 func (m *MockConnection) Write(b []byte) (n int, err error) {
+	m.writeBufferMu.Lock()
+	defer m.writeBufferMu.Unlock()
 	return m.writeBuffer.Write(b)
 }
 
@@ -56,6 +60,8 @@ func (m *MockConnection) Close() error {
 }
 
 func (m *MockConnection) GetWritten() string {
+	m.writeBufferMu.Lock()
+	defer m.writeBufferMu.Unlock()
 	return m.writeBuffer.String()
 }
 
