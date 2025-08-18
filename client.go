@@ -3,6 +3,7 @@ package jsonrps
 import (
 	"bufio"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -14,11 +15,12 @@ func DefaultClientHeader() http.Header {
 	return h
 }
 
-func InitializeClientSession(c net.Conn, h http.Header) (sess *Session, err error) {
+func InitializeClientSession(c net.Conn, h http.Header, l *slog.Logger) (sess *Session, err error) {
 	sess = &Session{
 		ProtocolSignature: DefaultProtocolSignature,
 		Conn:              c,
 		Headers:           make(http.Header),
+		Logger:            l,
 	}
 
 	// Write the HTTP header without blocking reads

@@ -133,8 +133,9 @@ func TestInitializeClientConn_BasicFunctionality(t *testing.T) {
 
 	mockConn := NewMockClientConnection(responseData)
 	headers := jsonrps.DefaultClientHeader()
+	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeClientSession(mockConn, headers)
+	session, err := jsonrps.InitializeClientSession(mockConn, headers, logger)
 
 	// Give the goroutine time to write headers
 	time.Sleep(10 * time.Millisecond)
@@ -176,8 +177,9 @@ func TestInitializeClientConn_WithCustomHeaders(t *testing.T) {
 	headers.Add("Accept", "application/json")
 	headers.Add("User-Agent", "Test Client 1.0")
 	headers.Add("Authorization", "Bearer token123")
+	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeClientSession(mockConn, headers)
+	session, err := jsonrps.InitializeClientSession(mockConn, headers, logger)
 
 	// Give the goroutine time to write headers
 	time.Sleep(10 * time.Millisecond)
@@ -218,8 +220,9 @@ func TestInitializeClientConn_WithResponseHeaders(t *testing.T) {
 
 	mockConn := NewMockClientConnection(responseData)
 	headers := jsonrps.DefaultClientHeader()
+	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeClientSession(mockConn, headers)
+	session, err := jsonrps.InitializeClientSession(mockConn, headers, logger)
 
 	// Give the goroutine time to write headers
 	time.Sleep(10 * time.Millisecond)
@@ -252,8 +255,9 @@ func TestInitializeClientConn_EmptyHeaders(t *testing.T) {
 
 	mockConn := NewMockClientConnection(responseData)
 	headers := make(http.Header) // Empty headers
+	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeClientSession(mockConn, headers)
+	session, err := jsonrps.InitializeClientSession(mockConn, headers, logger)
 
 	// Give the goroutine time to write headers
 	time.Sleep(10 * time.Millisecond)
@@ -284,8 +288,9 @@ func TestInitializeClientConn_ReadError(t *testing.T) {
 	}
 
 	headers := jsonrps.DefaultClientHeader()
+	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeClientSession(mockConn, headers)
+	session, err := jsonrps.InitializeClientSession(mockConn, headers, logger)
 
 	// Give the goroutine time to write headers
 	time.Sleep(10 * time.Millisecond)
@@ -314,8 +319,9 @@ func TestInitializeClientConn_HeadersWithSpaces(t *testing.T) {
 
 	mockConn := NewMockClientConnection(responseData)
 	headers := jsonrps.DefaultClientHeader()
+	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeClientSession(mockConn, headers)
+	session, err := jsonrps.InitializeClientSession(mockConn, headers, logger)
 
 	// Give the goroutine time to write headers
 	time.Sleep(10 * time.Millisecond)
@@ -345,8 +351,9 @@ func TestInitializeClientConn_HeadersWithTrailingSpaces(t *testing.T) {
 
 	mockConn := NewMockClientConnection(responseData)
 	headers := jsonrps.DefaultClientHeader()
+	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeClientSession(mockConn, headers)
+	session, err := jsonrps.InitializeClientSession(mockConn, headers, logger)
 
 	// Give the goroutine time to write headers
 	time.Sleep(10 * time.Millisecond)
@@ -376,8 +383,9 @@ func TestInitializeClientConn_MultipleHeaderValues(t *testing.T) {
 	headers := make(http.Header)
 	headers.Add("Accept", "application/json")
 	headers.Add("Accept", "application/xml")
+	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeClientSession(mockConn, headers)
+	session, err := jsonrps.InitializeClientSession(mockConn, headers, logger)
 
 	// Give the goroutine time to write headers
 	time.Sleep(10 * time.Millisecond)
@@ -408,9 +416,10 @@ func TestInitializeClientConn_AsyncHeaderWriting(t *testing.T) {
 
 	mockConn := NewMockClientConnection(responseData)
 	headers := jsonrps.DefaultClientHeader()
+	logger := createTestLogger(t)
 
 	// Execute the function
-	session, err := jsonrps.InitializeClientSession(mockConn, headers)
+	session, err := jsonrps.InitializeClientSession(mockConn, headers, logger)
 
 	// Verify no error occurred
 	if err != nil {

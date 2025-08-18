@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -14,6 +14,10 @@ import (
 
 func main() {
 	const socketPath = "example.sock"
+	lh := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})
+	logger := slog.New(lh)
 
 	// Create a context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -26,10 +30,11 @@ func main() {
 	// Connect to the server socket
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
-		log.Fatalf("Error connecting to server: %v", err)
+		logger.Error("Error connecting to server", "error", err)
+		os.Exit(1)
 	}
 
-	log.Printf("Connected to server socket: %s", socketPath)
+	logger.Info("Connected to server socket", "socket", socketPath)
 
 	// Channel to signal connection is closed
 	connClosed := make(chan struct{})
@@ -52,17 +57,16 @@ func main() {
 		conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 		// Initialize the JSON-RPC session
-		sess, err := jsonrps.InitializeClientSession(conn, jsonrps.DefaultClientHeader())
+		sess, err := jsonrps.InitializeClientSession(conn, jsonrps.DefaultClientHeader(), logger)
 		if err != nil {
-			log.Printf("Error initializing client: %v", err)
+			logger.Error("Error initializing client", "error", err)
 			return
 		}
 
 		// Clear deadline after successful initialization
 		conn.SetDeadline(time.Time{})
 
-		log.Println("JSON-RPC session initialized successfully")
-		_ = sess
+		sess.Logger.Info("JSON-RPC session initialized successfully")
 
 		// Monitor connection status and context cancellation
 		go func() {
@@ -85,7 +89,7 @@ func main() {
 						}
 					}
 					// Real error (connection closed, etc.)
-					log.Printf("Connection error detected: %v", err)
+					logger.Error("Connection error detected", "error", err)
 					cancel() // Signal shutdown
 					return
 				}
@@ -96,15 +100,15 @@ func main() {
 
 		// Wait for context to be cancelled (either by signal or connection error)
 		<-ctx.Done()
-		log.Println("Closing connection...")
+		logger.Info("Closing connection...")
 	}()
 
 	// Wait for either connection to close or shutdown signal
 	select {
 	case <-connClosed:
-		log.Println("Connection closed")
+		logger.Info("Connection closed")
 	case sig := <-sigChan:
-		log.Printf("Received signal: %v, shutting down gracefully...", sig)
+		logger.Info("Received signal, shutting down gracefully...", "signal", sig)
 
 		// Cancel context to stop the connection handler
 		cancel()
@@ -115,11 +119,11 @@ func main() {
 		// Give a brief moment for cleanup
 		select {
 		case <-connClosed:
-			log.Println("Connection closed gracefully")
+			logger.Info("Connection closed gracefully")
 		case <-time.After(1 * time.Second):
-			log.Println("Forcing immediate shutdown")
+			logger.Info("Forcing immediate shutdown")
 		}
 	}
 
-	log.Println("Client shutdown complete")
+	logger.Info("Client shutdown complete")
 }
