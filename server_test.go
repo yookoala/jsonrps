@@ -355,3 +355,307 @@ func TestInitializeServerConn_HeaderWithTrailingSpaces(t *testing.T) {
 		t.Errorf("Expected Authorization to be 'Bearer token' (trimmed), got %q", auth)
 	}
 }
+
+func TestNewServerSessionHandler(t *testing.T) {
+	// Test that NewServerSessionHandler returns a valid handler
+	handler := jsonrps.NewServerSessionHandler()
+
+	if handler == nil {
+		t.Fatal("Expected NewServerSessionHandler to return a non-nil handler")
+	}
+
+	// Test with a session that has the default MIME type
+	session := &jsonrps.Session{
+		Headers: make(map[string][]string),
+	}
+	session.Headers.Set("Content-Type", jsonrps.DefaultMimeType)
+
+	canHandle := handler.CanHandleSession(session)
+	if !canHandle {
+		t.Error("Expected default handler to handle session with default MIME type")
+	}
+}
+
+func TestNewServerSessionHandler_Integration(t *testing.T) {
+	// Test the full integration of NewServerSessionHandler
+	testData := "Content-Type: " + jsonrps.DefaultMimeType + "\r\n\n"
+	mockConn := NewMockConnection(testData)
+
+	session, err := jsonrps.InitializeServerSession(mockConn)
+	if err != nil {
+		t.Fatalf("Expected no error from InitializeServerSession, got %v", err)
+	}
+
+	handler := jsonrps.NewServerSessionHandler()
+
+	// Should be able to handle the session
+	if !handler.CanHandleSession(session) {
+		t.Error("Expected new handler to be able to handle session with default MIME type")
+	}
+
+	// Handle the session (should not panic)
+	handler.HandleSession(session)
+}
+
+func TestNewServerSessionHandler_RouterBehavior(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		expected    bool
+	}{
+		{
+			name:        "default MIME type",
+			contentType: jsonrps.DefaultMimeType,
+			expected:    true,
+		},
+		{
+			name:        "JSON MIME type",
+			contentType: "application/json",
+			expected:    true, // Router will fall back to NotImplementedServerSessionHandler
+		},
+		{
+			name:        "text plain",
+			contentType: "text/plain",
+			expected:    true, // Router will fall back to NotImplementedServerSessionHandler
+		},
+		{
+			name:        "empty content type",
+			contentType: "",
+			expected:    true, // Router will fall back to NotImplementedServerSessionHandler
+		},
+		{
+			name:        "no content type header",
+			contentType: "",
+			expected:    true, // Router will fall back to NotImplementedServerSessionHandler
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// NewServerSessionHandler returns a router with defaultServerSessionHandler
+			// and NotImplementedServerSessionHandler as fallback
+			handler := jsonrps.NewServerSessionHandler()
+
+			session := &jsonrps.Session{
+				Headers: make(map[string][]string),
+			}
+			if tt.contentType != "" {
+				session.Headers.Set("Content-Type", tt.contentType)
+			}
+
+			result := handler.CanHandleSession(session)
+			if result != tt.expected {
+				t.Errorf("Expected CanHandleSession to return %v for content type %q, got %v",
+					tt.expected, tt.contentType, result)
+			}
+		})
+	}
+}
+
+func TestNewServerSessionHandler_HandlingBehavior(t *testing.T) {
+	// Test that the router handles different MIME types appropriately
+	handler := jsonrps.NewServerSessionHandler()
+
+	// Test default MIME type - should be handled by defaultServerSessionHandler
+	session1 := &jsonrps.Session{
+		Headers: make(map[string][]string),
+		Conn:    NewMockConnection(""),
+	}
+	session1.Headers.Set("Content-Type", jsonrps.DefaultMimeType)
+
+	handler.HandleSession(session1)
+
+	// Should not get a 501 response since it's handled by defaultServerSessionHandler
+	written1 := session1.Conn.(*MockConnection).GetWritten()
+	notImplementedResponse := jsonrps.DefaultProtocolSignature + " 501 Not Implemented\r\n\r\n"
+	if written1 == notImplementedResponse {
+		t.Error("Expected default MIME type to be handled by defaultServerSessionHandler, not NotImplementedServerSessionHandler")
+	}
+
+	// Test unknown MIME type - should fall back to NotImplementedServerSessionHandler
+	session2 := &jsonrps.Session{
+		Headers: make(map[string][]string),
+		Conn:    NewMockConnection(""),
+	}
+	session2.Headers.Set("Content-Type", "unknown/type")
+
+	handler.HandleSession(session2)
+
+	// Should get a 501 response from NotImplementedServerSessionHandler
+	written2 := session2.Conn.(*MockConnection).GetWritten()
+	if written2 != notImplementedResponse {
+		t.Errorf("Expected unknown MIME type to be handled by NotImplementedServerSessionHandler with 501 response, got %q", written2)
+	}
+}
+
+func TestDefaultServerSessionHandler_HandleSession(t *testing.T) {
+	// Test that HandleSession doesn't panic and can be called
+	handler := jsonrps.NewServerSessionHandler()
+	mockConn := NewMockConnection("")
+
+	session := &jsonrps.Session{
+		Headers: make(map[string][]string),
+		Conn:    mockConn,
+	}
+	session.Headers.Set("Content-Type", jsonrps.DefaultMimeType)
+
+	// Should not panic
+	handler.HandleSession(session)
+}
+
+func TestNotImplementedServerSessionHandler_CanHandleSession(t *testing.T) {
+	// Test that NotImplementedServerSessionHandler always returns true for CanHandleSession
+	handler := jsonrps.NotImplementedServerSessionHandler(0)
+
+	tests := []struct {
+		name    string
+		session *jsonrps.Session
+	}{
+		{
+			name: "session with headers",
+			session: &jsonrps.Session{
+				Headers: map[string][]string{
+					"Content-Type": {"application/json"},
+				},
+			},
+		},
+		{
+			name: "session without headers",
+			session: &jsonrps.Session{
+				Headers: make(map[string][]string),
+			},
+		},
+		{
+			name: "session with nil headers",
+			session: &jsonrps.Session{
+				Headers: nil,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := handler.CanHandleSession(tt.session)
+			if !result {
+				t.Error("Expected NotImplementedServerSessionHandler.CanHandleSession to always return true")
+			}
+		})
+	}
+}
+
+func TestNotImplementedServerSessionHandler_HandleSession(t *testing.T) {
+	// Test that NotImplementedServerSessionHandler sends 501 response and closes connection
+	handler := jsonrps.NotImplementedServerSessionHandler(0)
+	mockConn := NewMockConnection("")
+
+	session := &jsonrps.Session{
+		Headers: make(map[string][]string),
+		Conn:    mockConn,
+	}
+
+	// Handle the session
+	handler.HandleSession(session)
+
+	// Verify 501 Not Implemented was written
+	expectedResponse := jsonrps.DefaultProtocolSignature + " 501 Not Implemented\r\n\r\n"
+	writtenData := mockConn.GetWritten()
+	if writtenData != expectedResponse {
+		t.Errorf("Expected response %q, got %q", expectedResponse, writtenData)
+	}
+
+	// Verify connection was closed
+	if !mockConn.closed {
+		t.Error("Expected connection to be closed after NotImplementedServerSessionHandler.HandleSession")
+	}
+}
+
+func TestNotImplementedServerSessionHandler_DifferentValues(t *testing.T) {
+	// Test that different values of NotImplementedServerSessionHandler behave the same
+	handler1 := jsonrps.NotImplementedServerSessionHandler(0)
+	handler2 := jsonrps.NotImplementedServerSessionHandler(42)
+	handler3 := jsonrps.NotImplementedServerSessionHandler(-1)
+
+	session := &jsonrps.Session{
+		Headers: make(map[string][]string),
+	}
+
+	// All should return true for CanHandleSession
+	if !handler1.CanHandleSession(session) {
+		t.Error("Expected handler1.CanHandleSession to return true")
+	}
+	if !handler2.CanHandleSession(session) {
+		t.Error("Expected handler2.CanHandleSession to return true")
+	}
+	if !handler3.CanHandleSession(session) {
+		t.Error("Expected handler3.CanHandleSession to return true")
+	}
+
+	// Test HandleSession for each
+	mockConn1 := NewMockConnection("")
+	mockConn2 := NewMockConnection("")
+	mockConn3 := NewMockConnection("")
+
+	session1 := &jsonrps.Session{Headers: make(map[string][]string), Conn: mockConn1}
+	session2 := &jsonrps.Session{Headers: make(map[string][]string), Conn: mockConn2}
+	session3 := &jsonrps.Session{Headers: make(map[string][]string), Conn: mockConn3}
+
+	handler1.HandleSession(session1)
+	handler2.HandleSession(session2)
+	handler3.HandleSession(session3)
+
+	// All should send the same response
+	expectedResponse := jsonrps.DefaultProtocolSignature + " 501 Not Implemented\r\n\r\n"
+
+	if mockConn1.GetWritten() != expectedResponse {
+		t.Error("Expected handler1 to send 501 response")
+	}
+	if mockConn2.GetWritten() != expectedResponse {
+		t.Error("Expected handler2 to send 501 response")
+	}
+	if mockConn3.GetWritten() != expectedResponse {
+		t.Error("Expected handler3 to send 501 response")
+	}
+
+	// All should close connections
+	if !mockConn1.closed || !mockConn2.closed || !mockConn3.closed {
+		t.Error("Expected all handlers to close connections")
+	}
+}
+
+func TestServerSessionHandlers_AsRouter(t *testing.T) {
+	// Test that the handlers work correctly when used in a router
+	handler1 := jsonrps.NotImplementedServerSessionHandler(0)
+	handler2 := jsonrps.NewServerSessionHandler()
+
+	router := jsonrps.ServerSessionRouter{handler1, handler2}
+
+	// Test with default MIME type - should match handler2 (NewServerSessionHandler)
+	session1 := &jsonrps.Session{
+		Headers: make(map[string][]string),
+		Conn:    NewMockConnection(""),
+	}
+	session1.Headers.Set("Content-Type", jsonrps.DefaultMimeType)
+
+	if !router.CanHandleSession(session1) {
+		t.Error("Expected router to handle session with default MIME type")
+	}
+
+	// Test with unknown MIME type - should match handler1 (NotImplementedServerSessionHandler)
+	session2 := &jsonrps.Session{
+		Headers: make(map[string][]string),
+		Conn:    NewMockConnection(""),
+	}
+	session2.Headers.Set("Content-Type", "unknown/type")
+
+	if !router.CanHandleSession(session2) {
+		t.Error("Expected router to handle session with unknown MIME type via NotImplementedServerSessionHandler")
+	}
+
+	// Handle the unknown type session - should get 501 response
+	router.HandleSession(session2)
+	mockConn2 := session2.Conn.(*MockConnection)
+	expectedResponse := jsonrps.DefaultProtocolSignature + " 501 Not Implemented\r\n\r\n"
+	if mockConn2.GetWritten() != expectedResponse {
+		t.Error("Expected router to delegate to NotImplementedServerSessionHandler for unknown MIME type")
+	}
+}

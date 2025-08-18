@@ -48,3 +48,42 @@ func InitializeServerSession(c net.Conn) (sess *Session, err error) {
 	sess = s
 	return
 }
+
+// NewServerSessionHandler creates a new instance of default implementation
+// of ServerSessionHandler.
+func NewServerSessionHandler() ServerSessionHandler {
+	r := ServerSessionRouter{
+		&defaultServerSessionHandler{
+			mimeType: DefaultMimeType,
+		},
+		NotImplementedServerSessionHandler(0),
+	}
+	return r
+}
+
+// defaultServerSessionHandler is the default implementation of ServerSessionHandler.
+type defaultServerSessionHandler struct {
+	mimeType string
+}
+
+func (h defaultServerSessionHandler) CanHandleSession(session *Session) bool {
+	return session.Headers.Get("Content-Type") == h.mimeType
+}
+
+func (h *defaultServerSessionHandler) HandleSession(session *Session) {
+	// Handle the session based on the MIME type
+}
+
+// NotImplementedServerSessionHandler is an implementation of ServerSessionHandler
+// that always returns a "Not Implemented" error.
+type NotImplementedServerSessionHandler int
+
+func (h NotImplementedServerSessionHandler) CanHandleSession(session *Session) bool {
+	return true
+}
+
+func (h NotImplementedServerSessionHandler) HandleSession(session *Session) {
+	// No-op handler returns error and close the session
+	session.Conn.Write([]byte(DefaultProtocolSignature + " 501 Not Implemented\r\n\r\n"))
+	session.Conn.Close()
+}
