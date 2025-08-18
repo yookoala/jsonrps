@@ -67,7 +67,7 @@ type defaultServerSessionHandler struct {
 }
 
 func (h defaultServerSessionHandler) CanHandleSession(session *Session) bool {
-	return session.Headers.Get("Content-Type") == h.mimeType
+	return session.Headers.Get("Accept") == h.mimeType
 }
 
 func (h *defaultServerSessionHandler) HandleSession(session *Session) {
