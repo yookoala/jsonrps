@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 const (
@@ -64,18 +65,22 @@ type Server interface {
 // of ServerSessionHandler.
 func NewServer() Server {
 	return &defaultServer{
-		mimeType: DefaultMimeType,
+		mimeType:    DefaultMimeType,
+		methods:     make(map[string]Method),
+		methodsLock: sync.Mutex{},
 	}
 }
 
 // defaultServer is the default implementation of ServerSessionHandler.
 type defaultServer struct {
 	mimeType string
-	methods  map[string]Method
+
+	methods     map[string]Method
+	methodsLock sync.Mutex
 }
 
 // CanHandleSession checks if the server can handle the given session.
-func (h defaultServer) CanHandleSession(session *Session) bool {
+func (h *defaultServer) CanHandleSession(session *Session) bool {
 	return session.Headers.Get("Accept") == h.mimeType
 }
 
@@ -86,9 +91,8 @@ func (h *defaultServer) HandleSession(session *Session) {
 
 // SetMethod sets a method for the given name.
 func (h *defaultServer) SetMethod(name string, method Method) {
-	if h.methods == nil {
-		h.methods = make(map[string]Method)
-	}
+	h.methodsLock.Lock()
+	defer h.methodsLock.Unlock()
 	if method == nil {
 		delete(h.methods, name)
 	} else {
