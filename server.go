@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -19,7 +21,9 @@ const (
 
 // InitializeServerSession provides default connection handling logic of server.
 func InitializeServerSession(c net.Conn) (sess *Session, err error) {
+	sid := uuid.New().String()
 	s := &Session{
+		ID:                sid,
 		ProtocolSignature: DefaultProtocolSignature,
 		Conn:              c,
 		Headers:           make(http.Header),

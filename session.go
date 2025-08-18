@@ -11,6 +11,9 @@ import (
 
 // Session is the raw I/O session between a server and a client
 type Session struct {
+	// ID is the internal identifier of a server-client session
+	ID string
+
 	// ProtocolSignature is the signature of the protocol being used
 	// by the server of the protocol type and version
 	ProtocolSignature string
