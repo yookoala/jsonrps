@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -13,12 +14,12 @@ import (
 	"github.com/yookoala/jsonrps"
 )
 
-func handleConnection(conn net.Conn, wg *sync.WaitGroup) {
+func handleConnection(logger *slog.Logger, conn net.Conn, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer conn.Close()
-	sess, err := jsonrps.InitializeServerSession(conn)
+	sess, err := jsonrps.InitializeServerSession(logger, conn)
 	if err != nil {
-		log.Printf("Error initializing session: %v", err)
+		logger.Error("Error initializing session", "error", err)
 		return
 	}
 	_ = sess
@@ -26,10 +27,11 @@ func handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 
 func main() {
 	const socketPath = "example.sock"
+	logger := slog.Default()
 
 	// Remove socket file if it already exists
 	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
-		log.Printf("Warning: failed to remove existing socket file: %v", err)
+		logger.Warn("failed to remove existing socket file", "error", err)
 	}
 
 	// Create a socket for communication
@@ -38,7 +40,7 @@ func main() {
 		log.Fatalf("Error starting server: %v", err)
 	}
 
-	log.Printf("Server listening on socket: %s", socketPath)
+	logger.Info("Server listening on socket", "socket", socketPath)
 
 	// Create a context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -54,14 +56,14 @@ func main() {
 	// Goroutine to handle shutdown signals
 	go func() {
 		sig := <-sigChan
-		log.Printf("Received signal: %v, shutting down gracefully...", sig)
+		logger.Info("Received signal, shutting down gracefully...", "signal", sig)
 
 		// Cancel context to stop accepting new connections
 		cancel()
 
 		// Close the listener to stop accepting new connections
 		if err := listener.Close(); err != nil {
-			log.Printf("Error closing listener: %v", err)
+			logger.Info("Error closing listener", "error", err)
 		}
 
 		// Wait for active connections to finish (with timeout)
@@ -73,19 +75,19 @@ func main() {
 
 		select {
 		case <-done:
-			log.Println("All connections closed gracefully")
+			logger.Info("All connections closed gracefully")
 		case <-time.After(10 * time.Second):
-			log.Println("Timeout waiting for connections to close, forcing shutdown")
+			logger.Info("Timeout waiting for connections to close, forcing shutdown")
 		}
 
 		// Clean up socket file
 		if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
-			log.Printf("Error removing socket file: %v", err)
+			logger.Info("Error removing socket file", "error", err)
 		} else {
-			log.Printf("Socket file %s removed", socketPath)
+			logger.Info("Socket file removed", "socket", socketPath)
 		}
 
-		log.Println("Server shutdown complete")
+		logger.Info("Server shutdown complete")
 		os.Exit(0)
 	}()
 
@@ -109,15 +111,15 @@ func main() {
 				}
 				// Check if listener was closed (during shutdown)
 				if netErr, ok := err.(net.Error); ok && !netErr.Temporary() {
-					log.Printf("Listener closed: %v", err)
+					logger.Info("Listener closed", "error", err)
 					return
 				}
-				log.Printf("Error accepting connection: %v", err)
+				logger.Info("Error accepting connection", "error", err)
 				continue
 			}
 
 			wg.Add(1)
-			go handleConnection(conn, &wg)
+			go handleConnection(logger, conn, &wg)
 		}
 	}
 }

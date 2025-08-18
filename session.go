@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 )
 
@@ -27,6 +28,9 @@ type Session struct {
 
 	// Conn is the session connection between a server and a client
 	Conn io.ReadWriteCloser
+
+	// Logger is a properly initialized for logger
+	Logger *slog.Logger
 
 	// headerSent indicates if the headers have been sent
 	headerSent bool
