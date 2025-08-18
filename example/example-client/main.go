@@ -33,11 +33,23 @@ func main() {
 
 	// Channel to signal connection is closed
 	connClosed := make(chan struct{})
+	var connClosedOnce bool
+
+	// Function to safely close connection
+	closeConn := func() {
+		if !connClosedOnce {
+			connClosedOnce = true
+			conn.Close()
+			close(connClosed)
+		}
+	}
 
 	// Goroutine to handle the connection
 	go func() {
-		defer close(connClosed)
-		defer conn.Close()
+		defer closeConn()
+
+		// Set a reasonable timeout for initialization
+		conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 		// Initialize the JSON-RPC session
 		sess, err := jsonrps.InitializeClientConn(conn, jsonrps.DefaultClientHeader())
@@ -45,6 +57,9 @@ func main() {
 			log.Printf("Error initializing client: %v", err)
 			return
 		}
+
+		// Clear deadline after successful initialization
+		conn.SetDeadline(time.Time{})
 
 		log.Println("JSON-RPC session initialized successfully")
 		_ = sess
@@ -54,28 +69,25 @@ func main() {
 		log.Println("Closing connection...")
 	}()
 
-	// Goroutine to handle shutdown signals
-	go func() {
-		sig := <-sigChan
-		log.Printf("Received signal: %v, shutting down gracefully...", sig)
-
-		// Cancel context to stop the connection handler
-		cancel()
-	}()
-
 	// Wait for either connection to close or shutdown signal
 	select {
 	case <-connClosed:
 		log.Println("Connection closed")
-	case <-ctx.Done():
-		log.Println("Shutdown initiated")
+	case sig := <-sigChan:
+		log.Printf("Received signal: %v, shutting down gracefully...", sig)
 
-		// Give some time for graceful cleanup
+		// Cancel context to stop the connection handler
+		cancel()
+
+		// Force close the connection to unblock any reads
+		closeConn()
+
+		// Give a brief moment for cleanup
 		select {
 		case <-connClosed:
 			log.Println("Connection closed gracefully")
-		case <-time.After(5 * time.Second):
-			log.Println("Timeout waiting for connection to close, forcing shutdown")
+		case <-time.After(1 * time.Second):
+			log.Println("Forcing immediate shutdown")
 		}
 	}
 

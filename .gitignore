@@ -1,2 +1,6 @@
 # coverage report
 /coverage.out
+
+# generatred binaries
+example-server
+example-client
