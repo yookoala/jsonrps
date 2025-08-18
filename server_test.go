@@ -2,6 +2,8 @@ package jsonrps_test
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"sync"
@@ -356,12 +358,12 @@ func TestInitializeServerConn_HeaderWithTrailingSpaces(t *testing.T) {
 	}
 }
 
-func TestNewServerSessionHandler(t *testing.T) {
-	// Test that NewServerSessionHandler returns a valid handler
-	handler := jsonrps.NewServerSessionHandler()
+func TestNewServer(t *testing.T) {
+	// Test that NewServer returns a valid server
+	server := jsonrps.NewServer()
 
-	if handler == nil {
-		t.Fatal("Expected NewServerSessionHandler to return a non-nil handler")
+	if server == nil {
+		t.Fatal("Expected NewServer to return a non-nil server")
 	}
 
 	// Test with a session that has the default MIME type in Accept header
@@ -370,14 +372,14 @@ func TestNewServerSessionHandler(t *testing.T) {
 	}
 	session.Headers.Set("Accept", jsonrps.DefaultMimeType)
 
-	canHandle := handler.CanHandleSession(session)
+	canHandle := server.CanHandleSession(session)
 	if !canHandle {
-		t.Error("Expected default handler to handle session with default MIME type in Accept header")
+		t.Error("Expected default server to handle session with default MIME type in Accept header")
 	}
 }
 
-func TestNewServerSessionHandler_Integration(t *testing.T) {
-	// Test the full integration of NewServerSessionHandler
+func TestNewServer_Integration(t *testing.T) {
+	// Test the full integration of NewServer
 	testData := "Accept: " + jsonrps.DefaultMimeType + "\r\n\n"
 	mockConn := NewMockConnection(testData)
 
@@ -386,18 +388,18 @@ func TestNewServerSessionHandler_Integration(t *testing.T) {
 		t.Fatalf("Expected no error from InitializeServerSession, got %v", err)
 	}
 
-	handler := jsonrps.NewServerSessionHandler()
+	server := jsonrps.NewServer()
 
 	// Should be able to handle the session
-	if !handler.CanHandleSession(session) {
-		t.Error("Expected new handler to be able to handle session with default MIME type in Accept header")
+	if !server.CanHandleSession(session) {
+		t.Error("Expected new server to be able to handle session with default MIME type in Accept header")
 	}
 
 	// Handle the session (should not panic)
-	handler.HandleSession(session)
+	server.HandleSession(session)
 }
 
-func TestNewServerSessionHandler_RouterBehavior(t *testing.T) {
+func TestNewServer_HandlingBehavior(t *testing.T) {
 	tests := []struct {
 		name       string
 		acceptType string
@@ -411,30 +413,23 @@ func TestNewServerSessionHandler_RouterBehavior(t *testing.T) {
 		{
 			name:       "JSON MIME type",
 			acceptType: "application/json",
-			expected:   true, // Router will fall back to NotImplementedServerSessionHandler
+			expected:   false, // defaultServer only handles default MIME type
 		},
 		{
 			name:       "text plain",
 			acceptType: "text/plain",
-			expected:   true, // Router will fall back to NotImplementedServerSessionHandler
+			expected:   false, // defaultServer only handles default MIME type
 		},
 		{
 			name:       "empty accept type",
 			acceptType: "",
-			expected:   true, // Router will fall back to NotImplementedServerSessionHandler
-		},
-		{
-			name:       "no accept header",
-			acceptType: "",
-			expected:   true, // Router will fall back to NotImplementedServerSessionHandler
+			expected:   false, // defaultServer only handles default MIME type
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// NewServerSessionHandler returns a router with defaultServerSessionHandler
-			// and NotImplementedServerSessionHandler as fallback
-			handler := jsonrps.NewServerSessionHandler()
+			server := jsonrps.NewServer()
 
 			session := &jsonrps.Session{
 				Headers: make(map[string][]string),
@@ -443,7 +438,7 @@ func TestNewServerSessionHandler_RouterBehavior(t *testing.T) {
 				session.Headers.Set("Accept", tt.acceptType)
 			}
 
-			result := handler.CanHandleSession(session)
+			result := server.CanHandleSession(session)
 			if result != tt.expected {
 				t.Errorf("Expected CanHandleSession to return %v for accept type %q, got %v",
 					tt.expected, tt.acceptType, result)
@@ -452,45 +447,45 @@ func TestNewServerSessionHandler_RouterBehavior(t *testing.T) {
 	}
 }
 
-func TestNewServerSessionHandler_HandlingBehavior(t *testing.T) {
-	// Test that the router handles different MIME types appropriately
-	handler := jsonrps.NewServerSessionHandler()
+func TestNewServer_DetailedHandling(t *testing.T) {
+	// Test that the server handles different MIME types appropriately
+	server := jsonrps.NewServer()
 
-	// Test default MIME type in Accept header - should be handled by defaultServerSessionHandler
+	// Test default MIME type in Accept header - should be handled by defaultServer
 	session1 := &jsonrps.Session{
 		Headers: make(map[string][]string),
 		Conn:    NewMockConnection(""),
 	}
 	session1.Headers.Set("Accept", jsonrps.DefaultMimeType)
 
-	handler.HandleSession(session1)
+	if !server.CanHandleSession(session1) {
+		t.Error("Expected server to handle session with default MIME type")
+	}
 
-	// Should not get a 501 response since it's handled by defaultServerSessionHandler
+	server.HandleSession(session1)
+
+	// Should not get a 501 response since it's handled by defaultServer
 	written1 := session1.Conn.(*MockConnection).GetWritten()
 	notImplementedResponse := jsonrps.DefaultProtocolSignature + " 501 Not Implemented\r\n\r\n"
 	if written1 == notImplementedResponse {
-		t.Error("Expected default MIME type to be handled by defaultServerSessionHandler, not NotImplementedServerSessionHandler")
+		t.Error("Expected default MIME type to be handled by defaultServer, not with 501 response")
 	}
 
-	// Test unknown MIME type in Accept header - should fall back to NotImplementedServerSessionHandler
+	// Test unknown MIME type in Accept header - should not be handled by defaultServer
 	session2 := &jsonrps.Session{
 		Headers: make(map[string][]string),
 		Conn:    NewMockConnection(""),
 	}
 	session2.Headers.Set("Accept", "unknown/type")
 
-	handler.HandleSession(session2)
-
-	// Should get a 501 response from NotImplementedServerSessionHandler
-	written2 := session2.Conn.(*MockConnection).GetWritten()
-	if written2 != notImplementedResponse {
-		t.Errorf("Expected unknown MIME type to be handled by NotImplementedServerSessionHandler with 501 response, got %q", written2)
+	if server.CanHandleSession(session2) {
+		t.Error("Expected server to not handle session with unknown MIME type")
 	}
 }
 
-func TestDefaultServerSessionHandler_HandleSession(t *testing.T) {
+func TestDefaultServer_HandleSession(t *testing.T) {
 	// Test that HandleSession doesn't panic and can be called
-	handler := jsonrps.NewServerSessionHandler()
+	server := jsonrps.NewServer()
 	mockConn := NewMockConnection("")
 
 	session := &jsonrps.Session{
@@ -500,7 +495,34 @@ func TestDefaultServerSessionHandler_HandleSession(t *testing.T) {
 	session.Headers.Set("Accept", jsonrps.DefaultMimeType)
 
 	// Should not panic
-	handler.HandleSession(session)
+	server.HandleSession(session)
+}
+
+func TestDefaultServer_SetMethod(t *testing.T) {
+	// Test the SetMethod functionality of the Server
+	server := jsonrps.NewServer()
+
+	// Test setting a method
+	testMethod := func(ctx context.Context, request *jsonrps.JSONRPCRequest) (*jsonrps.JSONRPCResponse, error) {
+		return &jsonrps.JSONRPCResponse{
+			ID:     request.ID,
+			Result: json.RawMessage(`"test result"`),
+		}, nil
+	}
+
+	// Should not panic when setting a method
+	server.SetMethod("test.method", testMethod)
+
+	// Test setting method to nil (removal)
+	server.SetMethod("test.method", nil)
+
+	// Test setting multiple methods
+	server.SetMethod("method1", testMethod)
+	server.SetMethod("method2", testMethod)
+	server.SetMethod("method3", testMethod)
+
+	// Remove one method
+	server.SetMethod("method2", nil)
 }
 
 func TestNotImplementedServerSessionHandler_CanHandleSession(t *testing.T) {
@@ -625,11 +647,11 @@ func TestNotImplementedServerSessionHandler_DifferentValues(t *testing.T) {
 func TestServerSessionHandlers_AsRouter(t *testing.T) {
 	// Test that the handlers work correctly when used in a router
 	handler1 := jsonrps.NotImplementedServerSessionHandler(0)
-	handler2 := jsonrps.NewServerSessionHandler()
+	handler2 := jsonrps.NewServer()
 
 	router := jsonrps.ServerSessionRouter{handler1, handler2}
 
-	// Test with default MIME type in Accept header - should match handler2 (NewServerSessionHandler)
+	// Test with default MIME type - should match handler2 (NewServer)
 	session1 := &jsonrps.Session{
 		Headers: make(map[string][]string),
 		Conn:    NewMockConnection(""),
@@ -637,10 +659,10 @@ func TestServerSessionHandlers_AsRouter(t *testing.T) {
 	session1.Headers.Set("Accept", jsonrps.DefaultMimeType)
 
 	if !router.CanHandleSession(session1) {
-		t.Error("Expected router to handle session with default MIME type in Accept header")
+		t.Error("Expected router to handle session with default MIME type")
 	}
 
-	// Test with unknown MIME type in Accept header - should match handler1 (NotImplementedServerSessionHandler)
+	// Test with unknown MIME type - should match handler1 (NotImplementedServerSessionHandler)
 	session2 := &jsonrps.Session{
 		Headers: make(map[string][]string),
 		Conn:    NewMockConnection(""),

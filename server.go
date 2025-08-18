@@ -2,6 +2,7 @@ package jsonrps
 
 import (
 	"bufio"
+	"context"
 	"net"
 	"net/http"
 	"strings"
@@ -49,29 +50,50 @@ func InitializeServerSession(c net.Conn) (sess *Session, err error) {
 	return
 }
 
-// NewServerSessionHandler creates a new instance of default implementation
+// Method is a function type that handles JSON-RPC requests.
+type Method func(ctx context.Context, request *JSONRPCRequest) (response *JSONRPCResponse, err error)
+
+// Server is the interface for the JSON-RPC+PubSub stream servers.
+type Server interface {
+	ServerSessionHandler
+
+	SetMethod(name string, method Method)
+}
+
+// NewServer creates a new instance of default implementation
 // of ServerSessionHandler.
-func NewServerSessionHandler() ServerSessionHandler {
-	r := ServerSessionRouter{
-		&defaultServerSessionHandler{
-			mimeType: DefaultMimeType,
-		},
-		NotImplementedServerSessionHandler(0),
+func NewServer() Server {
+	return &defaultServer{
+		mimeType: DefaultMimeType,
 	}
-	return r
 }
 
-// defaultServerSessionHandler is the default implementation of ServerSessionHandler.
-type defaultServerSessionHandler struct {
+// defaultServer is the default implementation of ServerSessionHandler.
+type defaultServer struct {
 	mimeType string
+	methods  map[string]Method
 }
 
-func (h defaultServerSessionHandler) CanHandleSession(session *Session) bool {
+// CanHandleSession checks if the server can handle the given session.
+func (h defaultServer) CanHandleSession(session *Session) bool {
 	return session.Headers.Get("Accept") == h.mimeType
 }
 
-func (h *defaultServerSessionHandler) HandleSession(session *Session) {
+// HandleSession handles the incoming session.
+func (h *defaultServer) HandleSession(session *Session) {
 	// Handle the session based on the MIME type
+}
+
+// SetMethod sets a method for the given name.
+func (h *defaultServer) SetMethod(name string, method Method) {
+	if h.methods == nil {
+		h.methods = make(map[string]Method)
+	}
+	if method == nil {
+		delete(h.methods, name)
+	} else {
+		h.methods[name] = method
+	}
 }
 
 // NotImplementedServerSessionHandler is an implementation of ServerSessionHandler
