@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net"
 	"os"
@@ -67,6 +68,14 @@ func main() {
 		conn.SetDeadline(time.Time{})
 
 		sess.Logger.Info("JSON-RPC session initialized successfully")
+
+		go func() {
+			sess.WriteRequest(&jsonrps.JSONRPCRequest{
+				Method: "ping",
+				Params: json.RawMessage(`{}`),
+				ID:     1,
+			})
+		}()
 
 		// Monitor connection status and context cancellation
 		go func() {
