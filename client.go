@@ -10,7 +10,7 @@ import (
 
 func DefaultClientHeader() http.Header {
 	h := make(http.Header)
-	h.Add("Accept", "application/json+rps")
+	h.Add("Accept", DefaultMimeType)
 	return h
 }
 

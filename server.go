@@ -8,7 +8,11 @@ import (
 )
 
 const (
+	// Default protocol signature
 	DefaultProtocolSignature = "JSONRPS/1.0"
+
+	// Default MIME type of the RPC + PubSub content
+	DefaultMimeType = "application/json+rps"
 )
 
 // InitializeServerSession provides default connection handling logic of server.
