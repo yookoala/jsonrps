@@ -144,7 +144,7 @@ func TestInitializeServerConn_ValidHeaders(t *testing.T) {
 }
 
 func TestInitializeServerConn_SuccessResponse(t *testing.T) {
-	// Test that a 200 OK response is written for successful header parsing
+	// Test that InitializeServerSession parses headers successfully without sending automatic response
 	testData := "Content-Type: application/json\r\n\n"
 
 	mockConn := NewMockConnection(testData)
@@ -162,14 +162,15 @@ func TestInitializeServerConn_SuccessResponse(t *testing.T) {
 		t.Fatal("Expected session to be returned")
 	}
 
-	// Give the goroutine time to execute
-	time.Sleep(10 * time.Millisecond)
+	// Verify headers were parsed correctly
+	if session.Headers.Get("Content-Type") != "application/json" {
+		t.Errorf("Expected Content-Type 'application/json', got '%s'", session.Headers.Get("Content-Type"))
+	}
 
-	// Verify that a 200 OK response was written
-	expectedResponse := jsonrps.DefaultProtocolSignature + " 200 OK\r\n\r\n"
+	// Verify that NO response was automatically written by InitializeServerSession
 	writtenData := mockConn.GetWritten()
-	if writtenData != expectedResponse {
-		t.Errorf("Expected response %q, got %q", expectedResponse, writtenData)
+	if writtenData != "" {
+		t.Errorf("Expected no automatic response from InitializeServerSession, got %q", writtenData)
 	}
 }
 
@@ -200,12 +201,10 @@ func TestInitializeServerConn_EmptyHeaders(t *testing.T) {
 		t.Errorf("Expected no headers, got %d", len(session.Headers))
 	}
 
-	// Give the goroutine time to execute and verify 200 OK response
-	time.Sleep(10 * time.Millisecond)
-	expectedResponse := jsonrps.DefaultProtocolSignature + " 200 OK\r\n\r\n"
+	// Verify that NO response was automatically written by InitializeServerSession
 	writtenData := mockConn.GetWritten()
-	if writtenData != expectedResponse {
-		t.Errorf("Expected response %q, got %q", expectedResponse, writtenData)
+	if writtenData != "" {
+		t.Errorf("Expected no automatic response from InitializeServerSession, got %q", writtenData)
 	}
 }
 

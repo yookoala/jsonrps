@@ -45,12 +45,6 @@ func InitializeServerSession(c net.Conn) (sess *Session, err error) {
 		}
 	}
 
-	// Write protocol signature after receiving all headers but not blocking
-	// session handler's take over
-	go func() {
-		c.Write([]byte(DefaultProtocolSignature + " 200 OK\r\n\r\n"))
-	}()
-
 	sess = s
 	return
 }
