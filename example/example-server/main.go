@@ -16,7 +16,7 @@ import (
 func handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer conn.Close()
-	sess, err := jsonrps.InitializeServerConn(conn)
+	sess, err := jsonrps.InitializeServerSession(conn)
 	if err != nil {
 		log.Printf("Error initializing session: %v", err)
 		return

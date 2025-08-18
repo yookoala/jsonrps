@@ -52,7 +52,7 @@ func main() {
 		conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 		// Initialize the JSON-RPC session
-		sess, err := jsonrps.InitializeClientConn(conn, jsonrps.DefaultClientHeader())
+		sess, err := jsonrps.InitializeClientSession(conn, jsonrps.DefaultClientHeader())
 		if err != nil {
 			log.Printf("Error initializing client: %v", err)
 			return

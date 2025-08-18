@@ -11,8 +11,8 @@ const (
 	DefaultProtocolSignature = "JSONRPS/1.0"
 )
 
-// InitializeServerConn provides default connection handling logic of server.
-func InitializeServerConn(c net.Conn) (sess *Session, err error) {
+// InitializeServerSession provides default connection handling logic of server.
+func InitializeServerSession(c net.Conn) (sess *Session, err error) {
 	s := &Session{
 		ProtocolSignature: DefaultProtocolSignature,
 		Conn:              c,

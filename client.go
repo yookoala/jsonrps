@@ -14,7 +14,7 @@ func DefaultClientHeader() http.Header {
 	return h
 }
 
-func InitializeClientConn(c net.Conn, h http.Header) (sess *Session, err error) {
+func InitializeClientSession(c net.Conn, h http.Header) (sess *Session, err error) {
 	sess = &Session{
 		ProtocolSignature: DefaultProtocolSignature,
 		Conn:              c,
