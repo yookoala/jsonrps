@@ -21,7 +21,7 @@ const (
 )
 
 // InitializeServerSession provides default connection handling logic of server.
-func InitializeServerSession(logger *slog.Logger, c net.Conn) (sess *Session, err error) {
+func InitializeServerSession(c net.Conn, logger *slog.Logger) (sess *Session, err error) {
 	sid := uuid.New().String()
 	s := &Session{
 		ID:                sid,

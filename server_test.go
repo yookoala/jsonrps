@@ -198,7 +198,7 @@ func TestInitializeServerConn_ValidHeaders(t *testing.T) {
 	logger := createTestLogger(t)
 
 	// Execute the function
-	session, err := jsonrps.InitializeServerSession(logger, mockConn)
+	session, err := jsonrps.InitializeServerSession(mockConn, logger)
 
 	// Verify no error occurred
 	if err != nil {
@@ -243,7 +243,7 @@ func TestInitializeServerConn_SuccessResponse(t *testing.T) {
 	logger := createTestLogger(t)
 
 	// Execute the function
-	session, err := jsonrps.InitializeServerSession(logger, mockConn)
+	session, err := jsonrps.InitializeServerSession(mockConn, logger)
 
 	// Verify no error occurred
 	if err != nil {
@@ -274,7 +274,7 @@ func TestInitializeServerConn_EmptyHeaders(t *testing.T) {
 	mockConn := NewMockConnection(testData)
 	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeServerSession(logger, mockConn)
+	session, err := jsonrps.InitializeServerSession(mockConn, logger)
 
 	// Verify no error occurred
 	if err != nil {
@@ -309,7 +309,7 @@ func TestInitializeServerConn_MalformedHeader(t *testing.T) {
 	mockConn := NewMockConnection(testData)
 	logger := createTestLogger(t)
 
-	session, _ := jsonrps.InitializeServerSession(logger, mockConn)
+	session, _ := jsonrps.InitializeServerSession(mockConn, logger)
 
 	// Verify that a 400 Bad Request was written
 	expectedResponse := jsonrps.DefaultProtocolSignature + " 400 Bad Request\r\n\r\n"
@@ -348,7 +348,7 @@ func TestInitializeServerConn_HeaderWithSpacesInValue(t *testing.T) {
 	mockConn := NewMockConnection(testData)
 	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeServerSession(logger, mockConn)
+	session, err := jsonrps.InitializeServerSession(mockConn, logger)
 
 	// Verify no error occurred
 	if err != nil {
@@ -381,7 +381,7 @@ func TestInitializeServerConn_ReadError(t *testing.T) {
 	}
 	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeServerSession(logger, mockConn)
+	session, err := jsonrps.InitializeServerSession(mockConn, logger)
 
 	// The function should handle the read error gracefully
 	// In this case, err should be set or session might be nil
@@ -402,7 +402,7 @@ func TestInitializeServerConn_HeaderWithoutSpace(t *testing.T) {
 	mockConn := NewMockConnection(testData)
 	logger := createTestLogger(t)
 
-	session, _ := jsonrps.InitializeServerSession(logger, mockConn)
+	session, _ := jsonrps.InitializeServerSession(mockConn, logger)
 
 	// This should be treated as malformed and result in a 400 response
 	expectedResponse := jsonrps.DefaultProtocolSignature + " 400 Bad Request\r\n\r\n"
@@ -431,7 +431,7 @@ func TestInitializeServerConn_HeaderWithTrailingSpaces(t *testing.T) {
 	mockConn := NewMockConnection(testData)
 	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeServerSession(logger, mockConn)
+	session, err := jsonrps.InitializeServerSession(mockConn, logger)
 
 	// Verify no error occurred
 	if err != nil {
@@ -481,7 +481,7 @@ func TestNewServer_Integration(t *testing.T) {
 	mockConn := NewMockConnection(testData)
 	logger := createTestLogger(t)
 
-	session, err := jsonrps.InitializeServerSession(logger, mockConn)
+	session, err := jsonrps.InitializeServerSession(mockConn, logger)
 	if err != nil {
 		t.Fatalf("Expected no error from InitializeServerSession, got %v", err)
 	}

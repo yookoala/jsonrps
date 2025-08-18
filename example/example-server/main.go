@@ -17,7 +17,7 @@ import (
 func handleConnection(logger *slog.Logger, conn net.Conn, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer conn.Close()
-	sess, err := jsonrps.InitializeServerSession(logger, conn)
+	sess, err := jsonrps.InitializeServerSession(conn, logger)
 	if err != nil {
 		logger.Error("Error initializing session", "error", err)
 		return
