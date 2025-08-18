@@ -64,7 +64,37 @@ func main() {
 		log.Println("JSON-RPC session initialized successfully")
 		_ = sess
 
-		// Keep the connection alive until context is cancelled
+		// Monitor connection status and context cancellation
+		go func() {
+			// Keep reading from connection to detect when it's closed
+			buffer := make([]byte, 1024)
+			for {
+				// Set a short read timeout to periodically check context
+				conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+
+				_, err := conn.Read(buffer)
+				if err != nil {
+					// Check if it's a timeout (expected) or actual error
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						// Timeout is expected, check if context is done
+						select {
+						case <-ctx.Done():
+							return
+						default:
+							continue
+						}
+					}
+					// Real error (connection closed, etc.)
+					log.Printf("Connection error detected: %v", err)
+					cancel() // Signal shutdown
+					return
+				}
+				// If we actually read data, we could process it here
+				// For now, we just continue monitoring
+			}
+		}()
+
+		// Wait for context to be cancelled (either by signal or connection error)
 		<-ctx.Done()
 		log.Println("Closing connection...")
 	}()
