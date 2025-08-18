@@ -1,7 +1,9 @@
 package jsonrps
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -51,6 +53,54 @@ func (sess *Session) Write(p []byte) (n int, err error) {
 		sess.headerSent = true
 	}
 	return sess.Conn.Write(p)
+}
+
+// WriteRequest writes a JSON-RPC request to the session connection
+// with an ending "\n"
+func (sess *Session) WriteRequest(request *JSONRPCRequest) (err error) {
+	var line []byte
+	line, err = json.Marshal(request)
+	if err != nil {
+		return
+	}
+	_, err = sess.Write(append(line, '\n'))
+	return
+}
+
+// ReadRequest reads a single line from the session connection,
+// and they try to decoded it as JSON
+func (sess *Session) ReadRequest() (request *JSONRPCRequest, err error) {
+	var line string
+	line, err = bufio.NewReader(sess.Conn).ReadString('\n')
+	if err != nil {
+		return
+	}
+	err = json.Unmarshal([]byte(line), &request)
+	return
+}
+
+// WriteResponse writes a JSON-RPC response to the session connection
+// with an ending "\n"
+func (sess *Session) WriteResponse(response *JSONRPCResponse) (err error) {
+	var line []byte
+	line, err = json.Marshal(response)
+	if err != nil {
+		return
+	}
+	_, err = sess.Write(append(line, '\n'))
+	return
+}
+
+// ReadResponse reads a JSON-RPC response from the session connection
+// with an ending "\n"
+func (sess *Session) ReadResponse() (response *JSONRPCResponse, err error) {
+	var line string
+	line, err = bufio.NewReader(sess.Conn).ReadString('\n')
+	if err != nil {
+		return
+	}
+	err = json.Unmarshal([]byte(line), &response)
+	return
 }
 
 // Header returns the header map that will be sent by

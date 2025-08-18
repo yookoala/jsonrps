@@ -1,7 +1,9 @@
 package jsonrps_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -1194,5 +1196,504 @@ func TestSession_Header_Modification_After_WriteHeader(t *testing.T) {
 
 	if strings.Contains(finalResponse, "New-Header: new-value") {
 		t.Error("New headers should not appear in already-sent response")
+	}
+}
+
+func TestSession_WriteRequest(t *testing.T) {
+	tests := []struct {
+		name     string
+		request  *jsonrps.JSONRPCRequest
+		expected string
+	}{
+		{
+			name: "simple request",
+			request: &jsonrps.JSONRPCRequest{
+				Version: "2.0",
+				Method:  "test.method",
+				ID:      "123",
+			},
+			expected: `{"jsonrpc":"2.0","method":"test.method","id":"123"}` + "\n",
+		},
+		{
+			name: "request with params",
+			request: &jsonrps.JSONRPCRequest{
+				Version: "2.0",
+				Method:  "math.add",
+				Params:  json.RawMessage(`[1, 2]`),
+				ID:      42,
+			},
+			expected: `{"jsonrpc":"2.0","method":"math.add","params":[1,2],"id":42}` + "\n",
+		},
+		{
+			name: "notification request (no ID)",
+			request: &jsonrps.JSONRPCRequest{
+				Version: "2.0",
+				Method:  "notify.event",
+				Params:  json.RawMessage(`{"event": "test"}`),
+			},
+			expected: `{"jsonrpc":"2.0","method":"notify.event","params":{"event":"test"}}` + "\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := &mockReadWriteCloser{}
+			session := &jsonrps.Session{
+				Conn: conn,
+			}
+
+			err := session.WriteRequest(tt.request)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			written := conn.writeData.String()
+			// Remove the automatic \r\n prefix that Write() adds for headers
+			written = strings.TrimPrefix(written, "\r\n")
+
+			if written != tt.expected {
+				t.Errorf("Expected written data %q, got %q", tt.expected, written)
+			}
+		})
+	}
+}
+
+func TestSession_WriteRequest_Error(t *testing.T) {
+	// Test error handling when marshaling fails
+	// Create a request with an unmarshalable field (function)
+	conn := &mockReadWriteCloser{}
+	session := &jsonrps.Session{
+		Conn: conn,
+	}
+
+	// Test with closed connection
+	conn.Close()
+	request := &jsonrps.JSONRPCRequest{
+		Version: "2.0",
+		Method:  "test.method",
+		ID:      "123",
+	}
+
+	err := session.WriteRequest(request)
+	if err == nil {
+		t.Error("Expected error when writing to closed connection")
+	}
+}
+
+func TestSession_ReadRequest(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected *jsonrps.JSONRPCRequest
+		wantErr  bool
+	}{
+		{
+			name:  "simple request",
+			input: `{"jsonrpc":"2.0","method":"test.method","id":"123"}` + "\n",
+			expected: &jsonrps.JSONRPCRequest{
+				Version: "2.0",
+				Method:  "test.method",
+				ID:      "123",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "request with params",
+			input: `{"jsonrpc":"2.0","method":"math.add","params":[1,2],"id":42}` + "\n",
+			expected: &jsonrps.JSONRPCRequest{
+				Version: "2.0",
+				Method:  "math.add",
+				Params:  json.RawMessage(`[1,2]`),
+				ID:      float64(42), // JSON unmarshaling gives float64 for numbers
+			},
+			wantErr: false,
+		},
+		{
+			name:  "notification request",
+			input: `{"jsonrpc":"2.0","method":"notify.event","params":{"event":"test"}}` + "\n",
+			expected: &jsonrps.JSONRPCRequest{
+				Version: "2.0",
+				Method:  "notify.event",
+				Params:  json.RawMessage(`{"event":"test"}`),
+			},
+			wantErr: false,
+		},
+		{
+			name:    "invalid JSON",
+			input:   `{"invalid": json}` + "\n",
+			wantErr: true,
+		},
+		{
+			name:    "empty input",
+			input:   "\n",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := &mockReadWriteCloser{
+				readData: tt.input,
+			}
+			session := &jsonrps.Session{
+				Conn: conn,
+			}
+
+			request, err := session.ReadRequest()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			if request == nil {
+				t.Fatal("Expected request but got nil")
+			}
+
+			if request.Version != tt.expected.Version {
+				t.Errorf("Expected Version %q, got %q", tt.expected.Version, request.Version)
+			}
+
+			if request.Method != tt.expected.Method {
+				t.Errorf("Expected Method %q, got %q", tt.expected.Method, request.Method)
+			}
+
+			if !reflect.DeepEqual(request.ID, tt.expected.ID) {
+				t.Errorf("Expected ID %v, got %v", tt.expected.ID, request.ID)
+			}
+
+			if len(tt.expected.Params) > 0 {
+				if !bytes.Equal(request.Params, tt.expected.Params) {
+					t.Errorf("Expected Params %s, got %s", tt.expected.Params, request.Params)
+				}
+			}
+		})
+	}
+}
+
+func TestSession_ReadRequest_Error(t *testing.T) {
+	// Test read error
+	conn := &mockReadWriteCloser{
+		readData: "", // Empty data causes EOF immediately
+	}
+	session := &jsonrps.Session{
+		Conn: conn,
+	}
+
+	request, err := session.ReadRequest()
+	if err == nil {
+		t.Error("Expected error when reading from connection with no data")
+	}
+
+	if request != nil {
+		t.Error("Expected nil request when error occurs")
+	}
+}
+
+func TestSession_WriteResponse(t *testing.T) {
+	tests := []struct {
+		name     string
+		response *jsonrps.JSONRPCResponse
+		expected string
+	}{
+		{
+			name: "success response",
+			response: &jsonrps.JSONRPCResponse{
+				Version: "2.0",
+				ID:      "123",
+				Result:  json.RawMessage(`"success"`),
+			},
+			expected: `{"jsonrpc":"2.0","id":"123","result":"success"}` + "\n",
+		},
+		{
+			name: "error response",
+			response: &jsonrps.JSONRPCResponse{
+				Version: "2.0",
+				ID:      42,
+				Error: &jsonrps.JSONRPCError{
+					Code:    -32600,
+					Message: "Invalid Request",
+				},
+			},
+			expected: `{"jsonrpc":"2.0","id":42,"error":{"code":-32600,"message":"Invalid Request"}}` + "\n",
+		},
+		{
+			name: "response with complex result",
+			response: &jsonrps.JSONRPCResponse{
+				Version: "2.0",
+				ID:      "test",
+				Result:  json.RawMessage(`{"status":"ok","data":[1,2,3]}`),
+			},
+			expected: `{"jsonrpc":"2.0","id":"test","result":{"status":"ok","data":[1,2,3]}}` + "\n",
+		},
+		{
+			name: "notification response (no ID)",
+			response: &jsonrps.JSONRPCResponse{
+				Version: "2.0",
+				Result:  json.RawMessage(`null`),
+			},
+			expected: `{"jsonrpc":"2.0","result":null}` + "\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := &mockReadWriteCloser{}
+			session := &jsonrps.Session{
+				Conn: conn,
+			}
+
+			err := session.WriteResponse(tt.response)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			written := conn.writeData.String()
+			// Remove the automatic \r\n prefix that Write() adds for headers
+			written = strings.TrimPrefix(written, "\r\n")
+
+			if written != tt.expected {
+				t.Errorf("Expected written data %q, got %q", tt.expected, written)
+			}
+		})
+	}
+}
+
+func TestSession_WriteResponse_Error(t *testing.T) {
+	// Test error handling when writing to closed connection
+	conn := &mockReadWriteCloser{}
+	conn.Close()
+
+	session := &jsonrps.Session{
+		Conn: conn,
+	}
+
+	response := &jsonrps.JSONRPCResponse{
+		Version: "2.0",
+		ID:      "123",
+		Result:  json.RawMessage(`"test"`),
+	}
+
+	err := session.WriteResponse(response)
+	if err == nil {
+		t.Error("Expected error when writing to closed connection")
+	}
+}
+
+func TestSession_ReadResponse(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected *jsonrps.JSONRPCResponse
+		wantErr  bool
+	}{
+		{
+			name:  "success response",
+			input: `{"jsonrpc":"2.0","id":"123","result":"success"}` + "\n",
+			expected: &jsonrps.JSONRPCResponse{
+				Version: "2.0",
+				ID:      "123",
+				Result:  json.RawMessage(`"success"`),
+			},
+			wantErr: false,
+		},
+		{
+			name:  "error response",
+			input: `{"jsonrpc":"2.0","id":42,"error":{"code":-32600,"message":"Invalid Request"}}` + "\n",
+			expected: &jsonrps.JSONRPCResponse{
+				Version: "2.0",
+				ID:      float64(42), // JSON unmarshaling gives float64 for numbers
+				Error: &jsonrps.JSONRPCError{
+					Code:    -32600,
+					Message: "Invalid Request",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:  "response with complex result",
+			input: `{"jsonrpc":"2.0","id":"test","result":{"status":"ok","data":[1,2,3]}}` + "\n",
+			expected: &jsonrps.JSONRPCResponse{
+				Version: "2.0",
+				ID:      "test",
+				Result:  json.RawMessage(`{"status":"ok","data":[1,2,3]}`),
+			},
+			wantErr: false,
+		},
+		{
+			name:    "invalid JSON",
+			input:   `{"invalid": json}` + "\n",
+			wantErr: true,
+		},
+		{
+			name:    "empty input",
+			input:   "\n",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := &mockReadWriteCloser{
+				readData: tt.input,
+			}
+			session := &jsonrps.Session{
+				Conn: conn,
+			}
+
+			response, err := session.ReadResponse()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			if response == nil {
+				t.Fatal("Expected response but got nil")
+			}
+
+			if response.Version != tt.expected.Version {
+				t.Errorf("Expected Version %q, got %q", tt.expected.Version, response.Version)
+			}
+
+			if !reflect.DeepEqual(response.ID, tt.expected.ID) {
+				t.Errorf("Expected ID %v, got %v", tt.expected.ID, response.ID)
+			}
+
+			if len(tt.expected.Result) > 0 {
+				if !bytes.Equal(response.Result, tt.expected.Result) {
+					t.Errorf("Expected Result %s, got %s", tt.expected.Result, response.Result)
+				}
+			}
+
+			if tt.expected.Error != nil {
+				if response.Error == nil {
+					t.Error("Expected error object but got nil")
+				} else {
+					if response.Error.Code != tt.expected.Error.Code {
+						t.Errorf("Expected error code %d, got %d", tt.expected.Error.Code, response.Error.Code)
+					}
+					if response.Error.Message != tt.expected.Error.Message {
+						t.Errorf("Expected error message %q, got %q", tt.expected.Error.Message, response.Error.Message)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSession_ReadResponse_Error(t *testing.T) {
+	// Test read error
+	conn := &mockReadWriteCloser{
+		readData: "", // Empty data causes EOF immediately
+	}
+	session := &jsonrps.Session{
+		Conn: conn,
+	}
+
+	response, err := session.ReadResponse()
+	if err == nil {
+		t.Error("Expected error when reading from connection with no data")
+	}
+
+	if response != nil {
+		t.Error("Expected nil response when error occurs")
+	}
+}
+
+func TestSession_JSONRPCMethods_Integration(t *testing.T) {
+	// Test round-trip: write request -> read request, write response -> read response
+
+	// Original request
+	originalRequest := &jsonrps.JSONRPCRequest{
+		Version: "2.0",
+		Method:  "test.echo",
+		Params:  json.RawMessage(`{"message":"hello"}`),
+		ID:      "integration-test",
+	}
+
+	// Step 1: Client writes request
+	clientConn := &mockReadWriteCloser{}
+	clientSession := &jsonrps.Session{Conn: clientConn}
+
+	err := clientSession.WriteRequest(originalRequest)
+	if err != nil {
+		t.Fatalf("Failed to write request: %v", err)
+	}
+
+	// Get the written request data
+	requestJSON := clientConn.writeData.String()
+	requestJSON = strings.TrimPrefix(requestJSON, "\r\n") // Remove header prefix
+
+	// Step 2: Server reads the request
+	serverConn := &mockReadWriteCloser{
+		readData: requestJSON,
+	}
+	serverSession := &jsonrps.Session{Conn: serverConn}
+
+	receivedRequest, err := serverSession.ReadRequest()
+	if err != nil {
+		t.Fatalf("Failed to read request: %v", err)
+	}
+
+	// Verify request was transmitted correctly
+	if receivedRequest.Version != originalRequest.Version {
+		t.Errorf("Request version mismatch: expected %q, got %q", originalRequest.Version, receivedRequest.Version)
+	}
+	if receivedRequest.Method != originalRequest.Method {
+		t.Errorf("Request method mismatch: expected %q, got %q", originalRequest.Method, receivedRequest.Method)
+	}
+	if !bytes.Equal(receivedRequest.Params, originalRequest.Params) {
+		t.Errorf("Request params mismatch: expected %s, got %s", originalRequest.Params, receivedRequest.Params)
+	}
+
+	// Step 3: Server writes response
+	response := &jsonrps.JSONRPCResponse{
+		Version: "2.0",
+		ID:      receivedRequest.ID,
+		Result:  json.RawMessage(`{"echo":"hello"}`),
+	}
+
+	err = serverSession.WriteResponse(response)
+	if err != nil {
+		t.Fatalf("Failed to write response: %v", err)
+	}
+
+	// Get the written response data
+	responseJSON := serverConn.writeData.String()
+	responseJSON = strings.TrimPrefix(responseJSON, "\r\n") // Remove header prefix
+
+	// Step 4: Client reads response
+	clientConn2 := &mockReadWriteCloser{
+		readData: responseJSON,
+	}
+	clientSession2 := &jsonrps.Session{Conn: clientConn2}
+
+	receivedResponse, err := clientSession2.ReadResponse()
+	if err != nil {
+		t.Fatalf("Failed to read response: %v", err)
+	}
+
+	// Verify response was transmitted correctly
+	if receivedResponse.Version != response.Version {
+		t.Errorf("Response version mismatch: expected %q, got %q", response.Version, receivedResponse.Version)
+	}
+	if !reflect.DeepEqual(receivedResponse.ID, response.ID) {
+		t.Errorf("Response ID mismatch: expected %v, got %v", response.ID, receivedResponse.ID)
+	}
+	if !bytes.Equal(receivedResponse.Result, response.Result) {
+		t.Errorf("Response result mismatch: expected %s, got %s", response.Result, receivedResponse.Result)
 	}
 }
