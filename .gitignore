@@ -2,5 +2,7 @@
 /coverage.out
 
 # generatred binaries
-example-server
-example-client
+/example/example-server/example-server
+/example/example-client/example-client
+/example-server
+/example-client
