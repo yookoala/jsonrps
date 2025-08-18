@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"log/slog"
 	"net"
@@ -14,15 +15,14 @@ import (
 	"github.com/yookoala/jsonrps"
 )
 
-func handleConnection(logger *slog.Logger, conn net.Conn, wg *sync.WaitGroup) {
-	defer wg.Done()
-	defer conn.Close()
-	sess, err := jsonrps.InitializeServerSession(conn, logger)
-	if err != nil {
-		logger.Error("Error initializing session", "error", err)
-		return
-	}
-	_ = sess
+// ping handles the ping request
+func ping(_ context.Context, req *jsonrps.JSONRPCRequest) (*jsonrps.JSONRPCResponse, error) {
+	// Handle ping request
+	return &jsonrps.JSONRPCResponse{
+		ID:      req.ID,
+		Result:  json.RawMessage(`"pong"`),
+		Version: req.Version,
+	}, nil
 }
 
 func main() {
@@ -91,6 +91,9 @@ func main() {
 		os.Exit(0)
 	}()
 
+	server := jsonrps.NewServer()
+	server.SetMethod("ping", ping)
+
 	// Accept connections loop
 	for {
 		select {
@@ -119,7 +122,15 @@ func main() {
 			}
 
 			wg.Add(1)
-			go handleConnection(logger, conn, &wg)
+			sess, err := jsonrps.InitializeServerSession(conn, logger)
+			if err != nil {
+				sess.Logger.Error("Error initializing session", "error", err)
+				return
+			}
+			go func() {
+				server.HandleSession(sess)
+				wg.Done()
+			}()
 		}
 	}
 }
