@@ -476,10 +476,28 @@ func TestNewServer_Integration(t *testing.T) {
 		t.Error("Expected new server to be able to handle session with default MIME type in Accept header")
 	}
 
-	// Note: HandleSession is designed to run until the server shuts down, not until a session ends.
-	// For a proper test of HandleSession, we would need to test it in the context of a full server
-	// with proper session management and shutdown procedures. For now, we'll just verify that
-	// CanHandleSession works correctly.
+	// Test HandleSession - it should run until the session ends (connection closes)
+	done := make(chan bool)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("HandleSession panicked: %v", r)
+			}
+			done <- true
+		}()
+		server.HandleSession(session)
+	}()
+
+	// Close the connection to end the session
+	mockConn.Close()
+
+	// Wait for HandleSession to complete
+	select {
+	case <-done:
+		// HandleSession completed successfully when session ended
+	case <-time.After(1 * time.Second):
+		t.Error("HandleSession did not complete within timeout after session closed")
+	}
 }
 
 func TestNewServer_HandlingBehavior(t *testing.T) {
@@ -546,6 +564,24 @@ func TestNewServer_DetailedHandling(t *testing.T) {
 		t.Error("Expected server to handle session with default MIME type")
 	}
 
+	// Test HandleSession runs until session closes
+	done := make(chan bool)
+	go func() {
+		defer func() { done <- true }()
+		server.HandleSession(session1)
+	}()
+
+	// Close the connection to end the session
+	session1.Conn.(*MockConnection).Close()
+
+	// Wait for completion
+	select {
+	case <-done:
+		// Success - HandleSession completed when session ended
+	case <-time.After(500 * time.Millisecond):
+		t.Error("HandleSession did not complete within timeout after session closed")
+	}
+
 	// Test unknown MIME type in Accept header - should not be handled by defaultServer
 	session2 := &jsonrps.Session{
 		Headers: make(map[string][]string),
@@ -560,7 +596,7 @@ func TestNewServer_DetailedHandling(t *testing.T) {
 }
 
 func TestDefaultServer_HandleSession(t *testing.T) {
-	// Test that HandleSession can be called without panic - basic smoke test
+	// Test that HandleSession runs for the duration of the session
 	server := jsonrps.NewServer()
 	mockConn := NewMockConnection("")
 
@@ -571,21 +607,83 @@ func TestDefaultServer_HandleSession(t *testing.T) {
 	}
 	session.Headers.Set("Accept", jsonrps.DefaultMimeType)
 
-	// Since HandleSession runs a blocking server loop, we'll just verify it can be started
-	// without panic. Full integration testing would require a complete server setup.
+	// HandleSession should run until the session ends (connection closes)
+	done := make(chan bool)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				t.Errorf("HandleSession panicked: %v", r)
 			}
+			done <- true
 		}()
 		server.HandleSession(session)
 	}()
 
-	// Give it a moment to start and then close connection
+	// Give it a moment to start
 	time.Sleep(10 * time.Millisecond)
+
+	// Close connection to end the session
 	mockConn.Close()
-	time.Sleep(10 * time.Millisecond) // Allow goroutines to see the closed connection
+
+	// HandleSession should complete when session ends
+	select {
+	case <-done:
+		// Success - HandleSession completed when session ended
+	case <-time.After(500 * time.Millisecond):
+		t.Error("HandleSession did not complete within timeout after session closed")
+	}
+}
+
+func TestDefaultServer_HandleSession_WithMethod(t *testing.T) {
+	// Test that HandleSession properly handles JSON-RPC method calls
+	server := jsonrps.NewServer()
+
+	// Add a test method
+	testMethodCalled := false
+	server.SetMethod("test.echo", func(ctx context.Context, request *jsonrps.JSONRPCRequest) (*jsonrps.JSONRPCResponse, error) {
+		testMethodCalled = true
+		return &jsonrps.JSONRPCResponse{
+			ID:     request.ID,
+			Result: request.Params,
+		}, nil
+	})
+
+	// Create a connection with a JSON-RPC request
+	requestJSON := `{"jsonrpc":"2.0","method":"test.echo","params":{"message":"hello"},"id":"1"}` + "\n"
+	mockConn := NewMockConnection(requestJSON)
+
+	session := &jsonrps.Session{
+		Headers: make(map[string][]string),
+		Conn:    mockConn,
+		Logger:  createTestLogger(t),
+	}
+	session.Headers.Set("Accept", jsonrps.DefaultMimeType)
+
+	// HandleSession should process the request and then end when connection closes
+	done := make(chan bool)
+	go func() {
+		defer func() { done <- true }()
+		server.HandleSession(session)
+	}()
+
+	// Give it time to process the request
+	time.Sleep(50 * time.Millisecond)
+
+	// Close connection to end the session
+	mockConn.Close()
+
+	// Wait for completion
+	select {
+	case <-done:
+		// Success - HandleSession completed when session ended
+	case <-time.After(500 * time.Millisecond):
+		t.Error("HandleSession did not complete within timeout after session closed")
+	}
+
+	// Verify the method was called
+	if !testMethodCalled {
+		t.Error("Expected test method to be called during session")
+	}
 }
 
 func TestDefaultServer_SetMethod(t *testing.T) {

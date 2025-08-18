@@ -101,12 +101,17 @@ func (h *defaultServer) CanHandleSession(session *Session) bool {
 }
 
 // HandleSession handles the incoming session.
+// This method runs for the duration of the session, managing the session's
+// request/response lifecycle until the session connection is closed or an error occurs.
 func (h *defaultServer) HandleSession(sess *Session) {
 	reqQueue := make(chan *JSONRPCRequest, 200)
 	respQueue := make(chan *JSONRPCResponse, 200)
+	sessionDone := make(chan struct{})
 
+	// Reader goroutine
 	go func() {
-		// Loop to read all request from sesion into readQueue
+		defer close(reqQueue)
+		// Loop to read all request from session into readQueue
 		for {
 			req, err := sess.ReadRequest()
 			if err != nil {
@@ -114,51 +119,77 @@ func (h *defaultServer) HandleSession(sess *Session) {
 				// read error if the connection is closed. That will terminate
 				// this goroutine here.
 				sess.Logger.Error("failed to read request", "error", err)
+				close(sessionDone) // Signal that the session is done
 				return
 			}
 			reqQueue <- req
 		}
 	}()
 
+	// Request handler goroutine
 	go func() {
-		// Loop to read everything into requestQueue without locking
+		defer close(respQueue)
+		// Loop to read everything from requestQueue and handle requests
 		for {
 			select {
-			case <-h.closed:
-				// Stop the goroutine
+			case <-sessionDone:
+				// Session is done, stop processing
 				return
-			case req := <-reqQueue:
+			case <-h.closed:
+				// Server is shutting down, stop processing
+				return
+			case req, ok := <-reqQueue:
+				if !ok {
+					// Request queue closed, stop processing
+					return
+				}
 				if m, ok := h.methods[req.Method]; ok {
-					go func() {
-						resp, err := m(context.Background(), req)
+					go func(request *JSONRPCRequest) {
+						resp, err := m(context.Background(), request)
 						if err != nil {
-							sess.Logger.Error("failed to handle request", "error", err, "request", req)
+							sess.Logger.Error("failed to handle request", "error", err, "request", request)
 							return
 						}
-						respQueue <- resp
-					}()
+						select {
+						case respQueue <- resp:
+						case <-sessionDone:
+							// Session closed while trying to send response
+						case <-h.closed:
+							// Server closed while trying to send response
+						}
+					}(req)
 				}
 			}
 		}
 	}()
 
+	// Response writer goroutine
 	go func() {
 		for {
 			select {
-			case <-h.closed:
-				// Stop the goroutine
+			case <-sessionDone:
+				// Session is done, stop writing responses
 				return
-			case resp := <-respQueue:
+			case <-h.closed:
+				// Server is shutting down, stop writing responses
+				return
+			case resp, ok := <-respQueue:
+				if !ok {
+					// Response queue closed, stop writing
+					return
+				}
 				err := sess.WriteResponse(resp)
 				if err != nil {
 					sess.Logger.Error("failed to write response", "error", err)
+					close(sessionDone) // Signal session done on write error
+					return
 				}
 			}
 		}
 	}()
 
 	// Wait until the session is closed
-	<-h.closed
+	<-sessionDone
 }
 
 // SetMethod sets a method for the given name.
