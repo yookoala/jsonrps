@@ -2,6 +2,7 @@ package jsonrps_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -583,4 +584,491 @@ type mockServerSessionHandlerWithOrder struct {
 func (m *mockServerSessionHandlerWithOrder) CanHandleSession(session *jsonrps.Session) bool {
 	*m.callOrder = append(*m.callOrder, m.id)
 	return m.canHandle
+}
+
+func TestSession_WriteHeader(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		headers    http.Header
+		expected   string
+	}{
+		{
+			name:       "200 OK with no headers",
+			statusCode: 200,
+			headers:    http.Header{},
+			expected:   "JSONRPS/1.0 200 OK\r\n\r\n",
+		},
+		{
+			name:       "404 Not Found with headers",
+			statusCode: 404,
+			headers: http.Header{
+				"Content-Type": []string{"application/json"},
+				"Server":       []string{"test-server/1.0"},
+			},
+			expected: "JSONRPS/1.0 404 Not Found\r\nContent-Type: application/json\r\nServer: test-server/1.0\r\n\r\n",
+		},
+		{
+			name:       "500 Internal Server Error",
+			statusCode: 500,
+			headers:    http.Header{},
+			expected:   "JSONRPS/1.0 500 Internal Server Error\r\n\r\n",
+		},
+		{
+			name:       "Custom status with multiple header values",
+			statusCode: 201,
+			headers: http.Header{
+				"Set-Cookie": []string{"session=abc123", "theme=dark"},
+				"Location":   []string{"/new-resource"},
+			},
+			expected: "JSONRPS/1.0 201 Created\r\nLocation: /new-resource\r\nSet-Cookie: session=abc123\r\nSet-Cookie: theme=dark\r\n\r\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := &mockReadWriteCloser{}
+			session := &jsonrps.Session{
+				Headers: tt.headers,
+				Conn:    conn,
+			}
+
+			session.WriteHeader(tt.statusCode)
+
+			written := conn.writeData.String()
+			// Since header order might vary, we need to verify components
+			lines := strings.Split(written, "\r\n")
+
+			// Check status line
+			expectedStatusLine := fmt.Sprintf("JSONRPS/1.0 %d %s", tt.statusCode, http.StatusText(tt.statusCode))
+			if lines[0] != expectedStatusLine {
+				t.Errorf("Expected status line '%s', got '%s'", expectedStatusLine, lines[0])
+			}
+
+			// Check that it ends with double CRLF
+			if !strings.HasSuffix(written, "\r\n\r\n") {
+				t.Error("Expected response to end with double CRLF")
+			}
+
+			// Check headers are present
+			for key, values := range tt.headers {
+				for _, value := range values {
+					expectedHeader := fmt.Sprintf("%s: %s", key, value)
+					if !strings.Contains(written, expectedHeader) {
+						t.Errorf("Expected header '%s' to be present in output", expectedHeader)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSession_Write(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     []byte
+		expected string
+	}{
+		{
+			name:     "write simple string",
+			data:     []byte("Hello, World!"),
+			expected: "\r\nHello, World!",
+		},
+		{
+			name:     "write JSON data",
+			data:     []byte(`{"message": "test", "id": 123}`),
+			expected: "\r\n" + `{"message": "test", "id": 123}`,
+		},
+		{
+			name:     "write empty data",
+			data:     []byte(""),
+			expected: "\r\n",
+		},
+		{
+			name:     "write binary data",
+			data:     []byte{0x01, 0x02, 0x03, 0xFF},
+			expected: "\r\n" + string([]byte{0x01, 0x02, 0x03, 0xFF}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := &mockReadWriteCloser{}
+			session := &jsonrps.Session{
+				Conn: conn,
+			}
+
+			n, err := session.Write(tt.data)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			if n != len(tt.data) {
+				t.Errorf("Expected to write %d bytes, wrote %d", len(tt.data), n)
+			}
+
+			written := conn.writeData.String()
+			if written != tt.expected {
+				t.Errorf("Expected written data '%s', got '%s'", tt.expected, written)
+			}
+		})
+	}
+}
+
+func TestSession_Write_WithHeadersAlreadySent(t *testing.T) {
+	// Test writing when headers have already been sent via WriteHeader
+	conn := &mockReadWriteCloser{}
+	session := &jsonrps.Session{
+		Headers: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+		Conn: conn,
+	}
+
+	// Send headers first
+	session.WriteHeader(200)
+
+	// Now write data - should not prepend \r\n since headers already sent
+	data := []byte("Hello, World!")
+	n, err := session.Write(data)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if n != len(data) {
+		t.Errorf("Expected to write %d bytes, wrote %d", len(data), n)
+	}
+
+	written := conn.writeData.String()
+	// Should contain the full response: status line + headers + double CRLF + data
+	expectedDataPart := "Hello, World!"
+	if !strings.HasSuffix(written, expectedDataPart) {
+		t.Errorf("Expected data '%s' to be at end of response, got '%s'", expectedDataPart, written)
+	}
+
+	// Should not have extra \r\n before the data since headers were already sent
+	lines := strings.Split(written, "\r\n\r\n")
+	if len(lines) != 2 {
+		t.Errorf("Expected response to have exactly one double CRLF separator, got %d parts", len(lines))
+	}
+
+	if lines[1] != expectedDataPart {
+		t.Errorf("Expected data part to be '%s', got '%s'", expectedDataPart, lines[1])
+	}
+}
+
+func TestSession_Write_MultipleWrites(t *testing.T) {
+	// Test multiple writes - only first should prepend \r\n
+	conn := &mockReadWriteCloser{}
+	session := &jsonrps.Session{
+		Conn: conn,
+	}
+
+	// First write should prepend \r\n
+	data1 := []byte("Hello")
+	n1, err := session.Write(data1)
+	if err != nil {
+		t.Fatalf("Unexpected error on first write: %v", err)
+	}
+	if n1 != len(data1) {
+		t.Errorf("Expected to write %d bytes on first write, wrote %d", len(data1), n1)
+	}
+
+	// Second write should NOT prepend \r\n
+	data2 := []byte(", World!")
+	n2, err := session.Write(data2)
+	if err != nil {
+		t.Fatalf("Unexpected error on second write: %v", err)
+	}
+	if n2 != len(data2) {
+		t.Errorf("Expected to write %d bytes on second write, wrote %d", len(data2), n2)
+	}
+
+	written := conn.writeData.String()
+	expected := "\r\nHello, World!"
+	if written != expected {
+		t.Errorf("Expected written data '%s', got '%s'", expected, written)
+	}
+}
+
+func TestSession_Write_Error(t *testing.T) {
+	// Test writing to closed connection
+	conn := &mockReadWriteCloser{}
+	conn.Close()
+
+	session := &jsonrps.Session{
+		Conn: conn,
+	}
+
+	_, err := session.Write([]byte("test"))
+	if err == nil {
+		t.Error("Expected error when writing to closed connection")
+	}
+}
+
+func TestSession_Header(t *testing.T) {
+	tests := []struct {
+		name     string
+		headers  http.Header
+		expected http.Header
+	}{
+		{
+			name:     "empty headers",
+			headers:  http.Header{},
+			expected: http.Header{},
+		},
+		{
+			name: "single header",
+			headers: http.Header{
+				"Content-Type": []string{"application/json"},
+			},
+			expected: http.Header{
+				"Content-Type": []string{"application/json"},
+			},
+		},
+		{
+			name: "multiple headers",
+			headers: http.Header{
+				"Content-Type":  []string{"application/json"},
+				"Authorization": []string{"Bearer token123"},
+				"Accept":        []string{"application/json", "text/plain"},
+			},
+			expected: http.Header{
+				"Content-Type":  []string{"application/json"},
+				"Authorization": []string{"Bearer token123"},
+				"Accept":        []string{"application/json", "text/plain"},
+			},
+		},
+		{
+			name:     "nil headers",
+			headers:  nil,
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session := &jsonrps.Session{
+				Headers: tt.headers,
+			}
+
+			result := session.Header()
+
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("Expected headers %v, got %v", tt.expected, result)
+			}
+
+			// Verify it returns the same reference (not a copy) for non-nil headers
+			if tt.headers != nil {
+				// Test that modifications to the returned header affect the session
+				originalLen := len(session.Headers)
+				result.Set("Test-Header", "test-value")
+				if len(session.Headers) == originalLen && session.Headers.Get("Test-Header") != "test-value" {
+					t.Error("Expected Header() to return reference to same header map")
+				}
+			}
+		})
+	}
+}
+
+func TestSession_Header_Modification(t *testing.T) {
+	// Test that modifying the returned header affects the session
+	session := &jsonrps.Session{
+		Headers: make(http.Header),
+	}
+
+	header := session.Header()
+	header.Set("Content-Type", "application/json")
+	header.Add("Accept", "text/plain")
+
+	// Verify the session's headers were modified
+	if session.Headers.Get("Content-Type") != "application/json" {
+		t.Error("Expected session headers to be modified when Header() result is modified")
+	}
+
+	if session.Headers.Get("Accept") != "text/plain" {
+		t.Error("Expected session headers to be modified when Header() result is modified")
+	}
+}
+
+func TestSession_WriteHeader_And_Write_Integration(t *testing.T) {
+	// Test using WriteHeader followed by Write
+	conn := &mockReadWriteCloser{}
+	session := &jsonrps.Session{
+		Headers: http.Header{
+			"Content-Type":   []string{"application/json"},
+			"Content-Length": []string{"26"},
+		},
+		Conn: conn,
+	}
+
+	// Write header first
+	session.WriteHeader(200)
+
+	// Then write body
+	body := []byte(`{"status": "success"}`)
+	n, err := session.Write(body)
+	if err != nil {
+		t.Fatalf("Unexpected error writing body: %v", err)
+	}
+	if n != len(body) {
+		t.Errorf("Expected to write %d bytes, wrote %d", len(body), n)
+	}
+
+	// Verify complete response
+	written := conn.writeData.String()
+
+	// Should contain status line
+	if !strings.Contains(written, "JSONRPS/1.0 200 OK") {
+		t.Error("Expected status line in response")
+	}
+
+	// Should contain headers
+	if !strings.Contains(written, "Content-Type: application/json") {
+		t.Error("Expected Content-Type header in response")
+	}
+
+	// Should contain body
+	if !strings.Contains(written, `{"status": "success"}`) {
+		t.Error("Expected JSON body in response")
+	}
+
+	// Should have proper structure (headers before body)
+	parts := strings.Split(written, "\r\n\r\n")
+	if len(parts) != 2 {
+		t.Errorf("Expected response to have header and body sections separated by double CRLF, got %d parts", len(parts))
+	}
+
+	if !strings.Contains(parts[1], `{"status": "success"}`) {
+		t.Error("Expected body to be in second part after double CRLF")
+	}
+}
+
+func TestSession_HeaderSent_Flag(t *testing.T) {
+	// Test that headerSent flag works correctly
+	t.Run("initial state", func(t *testing.T) {
+		session := &jsonrps.Session{}
+		// Note: headerSent is private, so we test behavior indirectly
+
+		// Write should prepend \r\n on first call
+		conn := &mockReadWriteCloser{}
+		session.Conn = conn
+
+		session.Write([]byte("test"))
+		written := conn.writeData.String()
+		if !strings.HasPrefix(written, "\r\n") {
+			t.Error("Expected first Write to prepend \\r\\n when headers not sent")
+		}
+	})
+
+	t.Run("after WriteHeader", func(t *testing.T) {
+		conn := &mockReadWriteCloser{}
+		session := &jsonrps.Session{
+			Headers: http.Header{"Content-Type": []string{"text/plain"}},
+			Conn:    conn,
+		}
+
+		// Call WriteHeader first
+		session.WriteHeader(200)
+		initialWrite := conn.writeData.String()
+
+		// Now Write should not prepend \r\n
+		session.Write([]byte("test"))
+		finalWrite := conn.writeData.String()
+
+		// The difference should be exactly "test" (no extra \r\n)
+		addedContent := finalWrite[len(initialWrite):]
+		if addedContent != "test" {
+			t.Errorf("Expected Write after WriteHeader to add only 'test', got '%s'", addedContent)
+		}
+	})
+
+	t.Run("after first Write", func(t *testing.T) {
+		conn := &mockReadWriteCloser{}
+		session := &jsonrps.Session{Conn: conn}
+
+		// First Write should prepend \r\n
+		session.Write([]byte("first"))
+		firstWrite := conn.writeData.String()
+		if firstWrite != "\r\nfirst" {
+			t.Errorf("Expected first write to be '\\r\\nfirst', got '%s'", firstWrite)
+		}
+
+		// Second Write should not prepend \r\n
+		session.Write([]byte("second"))
+		finalWrite := conn.writeData.String()
+		if finalWrite != "\r\nfirstsecond" {
+			t.Errorf("Expected final write to be '\\r\\nfirstsecond', got '%s'", finalWrite)
+		}
+	})
+}
+
+func TestSession_WriteHeader_Multiple_Calls(t *testing.T) {
+	// Test multiple calls to WriteHeader (should send headers each time)
+	conn := &mockReadWriteCloser{}
+	session := &jsonrps.Session{
+		Headers: http.Header{"Content-Type": []string{"application/json"}},
+		Conn:    conn,
+	}
+
+	// First WriteHeader call
+	session.WriteHeader(200)
+	firstResponse := conn.writeData.String()
+
+	// Second WriteHeader call
+	session.WriteHeader(404)
+	secondResponse := conn.writeData.String()
+
+	// Both responses should be present
+	if !strings.Contains(firstResponse, "200 OK") {
+		t.Error("Expected first response to contain '200 OK'")
+	}
+
+	if !strings.Contains(secondResponse, "404 Not Found") {
+		t.Error("Expected second response to contain '404 Not Found'")
+	}
+
+	// Should have two complete header sections
+	headerSections := strings.Split(secondResponse, "\r\n\r\n")
+	if len(headerSections) < 3 { // first headers + second headers + empty body section
+		t.Errorf("Expected at least 3 sections after double WriteHeader calls, got %d", len(headerSections))
+	}
+}
+
+func TestSession_Header_Modification_After_WriteHeader(t *testing.T) {
+	// Test that header modifications after WriteHeader don't affect sent headers
+	conn := &mockReadWriteCloser{}
+	session := &jsonrps.Session{
+		Headers: make(http.Header),
+		Conn:    conn,
+	}
+
+	// Set initial header
+	session.Headers.Set("Content-Type", "application/json")
+
+	// Send headers
+	session.WriteHeader(200)
+	afterHeaderWrite := conn.writeData.String()
+
+	// Modify headers after sending
+	session.Headers.Set("Content-Type", "text/plain")
+	session.Headers.Set("New-Header", "new-value")
+
+	// Write body
+	session.Write([]byte("test body"))
+	finalResponse := conn.writeData.String()
+
+	// Original headers should be in response
+	if !strings.Contains(afterHeaderWrite, "Content-Type: application/json") {
+		t.Error("Expected original Content-Type header in sent response")
+	}
+
+	// New headers should NOT appear in the already-sent response
+	if strings.Contains(finalResponse, "Content-Type: text/plain") {
+		t.Error("Modified headers should not appear in already-sent response")
+	}
+
+	if strings.Contains(finalResponse, "New-Header: new-value") {
+		t.Error("New headers should not appear in already-sent response")
+	}
 }

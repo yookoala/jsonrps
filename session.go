@@ -2,6 +2,7 @@ package jsonrps
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 )
@@ -21,6 +22,56 @@ type Session struct {
 
 	// Conn is the session connection between a server and a client
 	Conn io.ReadWriteCloser
+
+	// headerSent indicates if the headers have been sent
+	headerSent bool
+}
+
+// WriteHeader sends the status code along with response header for the session.
+func (sess *Session) WriteHeader(statusCode int) {
+	fmt.Fprintf(sess.Conn, "%s %d %s\r\n", DefaultProtocolSignature, statusCode, http.StatusText(statusCode))
+
+	// Also write headers to the connection
+	for key, values := range sess.Headers {
+		for _, value := range values {
+			fmt.Fprintf(sess.Conn, "%s: %s\r\n", key, value)
+		}
+	}
+
+	// Finish sending the header over
+	fmt.Fprintf(sess.Conn, "\r\n")
+	sess.headerSent = true
+}
+
+// Write writes the response body to the session.
+func (sess *Session) Write(p []byte) (n int, err error) {
+	if !sess.headerSent {
+		// Finish sending the header over
+		fmt.Fprintf(sess.Conn, "\r\n")
+		sess.headerSent = true
+	}
+	return sess.Conn.Write(p)
+}
+
+// Header returns the header map that will be sent by
+// [Session.WriteHeader]. The [Header] map also is the mechanism with which
+// [Handler] implementations can set HTTP trailers.
+//
+// Changing the header map after a call to [Session.WriteHeader] (or [Session.Write])
+// has no effect unless the HTTP status code was of the
+// 1xx class or the modified headers are trailers.
+//
+// There are two ways to set Trailers. The preferred way is to
+// predeclare in the headers which trailers you will later
+// send by setting the "Trailer" header to the names of the
+// trailer keys which will come later. In this case, those
+// keys of the Header map are treated as if they were
+// trailers. See the example. The second way, for trailer
+// keys not known to the [Handler] until after the first [ResponseWriter.Write],
+// is to prefix the [Header] map keys with the [TrailerPrefix]
+// constant value.
+func (sess *Session) Header() http.Header {
+	return sess.Headers
 }
 
 // SessionHandler is a generic interface for handling sessions
