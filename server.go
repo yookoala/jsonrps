@@ -107,6 +107,15 @@ func (h *defaultServer) HandleSession(sess *Session) {
 	reqQueue := make(chan *JSONRPCRequest, 200)
 	respQueue := make(chan *JSONRPCResponse, 200)
 	sessionDone := make(chan struct{})
+	var sessionDoneOnce sync.Once
+	var methodsWG sync.WaitGroup
+
+	// Helper function to safely close sessionDone only once
+	cleanUp := func() {
+		sessionDoneOnce.Do(func() {
+			close(sessionDone)
+		})
+	}
 
 	// Reader goroutine
 	go func() {
@@ -119,7 +128,7 @@ func (h *defaultServer) HandleSession(sess *Session) {
 				// read error if the connection is closed. That will terminate
 				// this goroutine here.
 				sess.Logger.Error("failed to read request", "error", err)
-				close(sessionDone) // Signal that the session is done
+				cleanUp() // Signal that the session is done
 				return
 			}
 			reqQueue <- req
@@ -128,7 +137,11 @@ func (h *defaultServer) HandleSession(sess *Session) {
 
 	// Request handler goroutine
 	go func() {
-		defer close(respQueue)
+		defer func() {
+			// Wait for all method goroutines to complete before closing respQueue
+			methodsWG.Wait()
+			close(respQueue)
+		}()
 		// Loop to read everything from requestQueue and handle requests
 		for {
 			select {
@@ -144,14 +157,18 @@ func (h *defaultServer) HandleSession(sess *Session) {
 					return
 				}
 				if m, ok := h.methods[req.Method]; ok {
+					methodsWG.Add(1)
 					go func(request *JSONRPCRequest) {
+						defer methodsWG.Done()
 						resp, err := m(context.Background(), request)
 						if err != nil {
 							sess.Logger.Error("failed to handle request", "error", err, "request", request)
 							return
 						}
+						// Try to send response, but don't panic if channel is closed
 						select {
 						case respQueue <- resp:
+							// Successfully sent response
 						case <-sessionDone:
 							// Session closed while trying to send response
 						case <-h.closed:
@@ -181,7 +198,7 @@ func (h *defaultServer) HandleSession(sess *Session) {
 				err := sess.WriteResponse(resp)
 				if err != nil {
 					sess.Logger.Error("failed to write response", "error", err)
-					close(sessionDone) // Signal session done on write error
+					cleanUp() // Signal session done on write error
 					return
 				}
 			}

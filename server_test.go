@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -92,6 +93,7 @@ type MockConnection struct {
 	writeBufferMu sync.Mutex
 	closeCallback func()
 	closed        bool
+	closedMu      sync.RWMutex
 }
 
 func NewMockConnection(data string) *MockConnection {
@@ -103,7 +105,11 @@ func NewMockConnection(data string) *MockConnection {
 }
 
 func (m *MockConnection) Read(b []byte) (n int, err error) {
-	if m.closed {
+	m.closedMu.RLock()
+	isClosed := m.closed
+	m.closedMu.RUnlock()
+
+	if isClosed {
 		return 0, io.EOF
 	}
 	if m.position >= len(m.data) {
@@ -120,13 +126,24 @@ func (m *MockConnection) Read(b []byte) (n int, err error) {
 }
 
 func (m *MockConnection) Write(b []byte) (n int, err error) {
+	m.closedMu.RLock()
+	isClosed := m.closed
+	m.closedMu.RUnlock()
+
+	if isClosed {
+		return 0, io.ErrClosedPipe
+	}
+
 	m.writeBufferMu.Lock()
 	defer m.writeBufferMu.Unlock()
 	return m.writeBuffer.Write(b)
 }
 
 func (m *MockConnection) Close() error {
+	m.closedMu.Lock()
 	m.closed = true
+	m.closedMu.Unlock()
+
 	if m.closeCallback != nil {
 		m.closeCallback()
 	}
@@ -638,10 +655,10 @@ func TestDefaultServer_HandleSession_WithMethod(t *testing.T) {
 	// Test that HandleSession properly handles JSON-RPC method calls
 	server := jsonrps.NewServer()
 
-	// Add a test method
-	testMethodCalled := false
+	// Add a test method with thread-safe flag
+	var testMethodCalled int32
 	server.SetMethod("test.echo", func(ctx context.Context, request *jsonrps.JSONRPCRequest) (*jsonrps.JSONRPCResponse, error) {
-		testMethodCalled = true
+		atomic.StoreInt32(&testMethodCalled, 1)
 		return &jsonrps.JSONRPCResponse{
 			ID:     request.ID,
 			Result: request.Params,
@@ -680,8 +697,8 @@ func TestDefaultServer_HandleSession_WithMethod(t *testing.T) {
 		t.Error("HandleSession did not complete within timeout after session closed")
 	}
 
-	// Verify the method was called
-	if !testMethodCalled {
+	// Verify the method was called (using atomic load for thread safety)
+	if atomic.LoadInt32(&testMethodCalled) == 0 {
 		t.Error("Expected test method to be called during session")
 	}
 }
