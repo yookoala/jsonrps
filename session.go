@@ -92,6 +92,16 @@ type ServerSessionHandler interface {
 // to proper ServerSessionHandler
 type ServerSessionRouter []ServerSessionHandler
 
+// CanHandleSession checks if any handler can handle the given session
+func (r ServerSessionRouter) CanHandleSession(session *Session) bool {
+	for _, handler := range r {
+		if handler.CanHandleSession(session) {
+			return true
+		}
+	}
+	return false
+}
+
 // HandleSession routes the session to the appropriate handler
 func (r ServerSessionRouter) HandleSession(session *Session) {
 	for _, handler := range r {

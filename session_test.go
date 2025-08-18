@@ -542,6 +542,13 @@ func TestMockReadWriteCloser_EdgeCases(t *testing.T) {
 	}
 }
 
+func TestServerSessionRouter_implementsServerSessionHandler(t *testing.T) {
+	router := jsonrps.ServerSessionRouter{}
+	if _, ok := interface{}(router).(jsonrps.ServerSessionHandler); !ok {
+		t.Error("Expected ServerSessionRouter to implement ServerSessionHandler")
+	}
+}
+
 func TestServerSessionRouter_HandlerOrder(t *testing.T) {
 	// Test that handlers are checked in order
 	var callOrder []int
@@ -584,6 +591,123 @@ type mockServerSessionHandlerWithOrder struct {
 func (m *mockServerSessionHandlerWithOrder) CanHandleSession(session *jsonrps.Session) bool {
 	*m.callOrder = append(*m.callOrder, m.id)
 	return m.canHandle
+}
+
+func TestServerSessionRouter_CanHandleSession_WithHandlers(t *testing.T) {
+	// Test CanHandleSession when one of the handlers can handle the session
+	handler1 := &mockServerSessionHandler{canHandle: false}
+	handler2 := &mockServerSessionHandler{canHandle: true}
+	handler3 := &mockServerSessionHandler{canHandle: false}
+
+	router := jsonrps.ServerSessionRouter{handler1, handler2, handler3}
+	session := &jsonrps.Session{ProtocolSignature: "Test Protocol"}
+
+	result := router.CanHandleSession(session)
+
+	if !result {
+		t.Error("Expected router.CanHandleSession to return true when at least one handler can handle")
+	}
+}
+
+func TestServerSessionRouter_CanHandleSession_NoHandlers(t *testing.T) {
+	// Test CanHandleSession when no handlers can handle the session
+	handler1 := &mockServerSessionHandler{canHandle: false}
+	handler2 := &mockServerSessionHandler{canHandle: false}
+	handler3 := &mockServerSessionHandler{canHandle: false}
+
+	router := jsonrps.ServerSessionRouter{handler1, handler2, handler3}
+	session := &jsonrps.Session{ProtocolSignature: "Test Protocol"}
+
+	result := router.CanHandleSession(session)
+
+	if result {
+		t.Error("Expected router.CanHandleSession to return false when no handlers can handle")
+	}
+}
+
+func TestServerSessionRouter_CanHandleSession_EmptyRouter(t *testing.T) {
+	// Test CanHandleSession with empty router
+	router := jsonrps.ServerSessionRouter{}
+	session := &jsonrps.Session{ProtocolSignature: "Test Protocol"}
+
+	result := router.CanHandleSession(session)
+
+	if result {
+		t.Error("Expected empty router.CanHandleSession to return false")
+	}
+}
+
+func TestServerSessionRouter_CanHandleSession_FirstHandlerMatches(t *testing.T) {
+	// Test CanHandleSession when the first handler can handle (should return true immediately)
+	handler1 := &mockServerSessionHandler{canHandle: true}
+	handler2 := &mockServerSessionHandler{canHandle: false}
+	handler3 := &mockServerSessionHandler{canHandle: false}
+
+	router := jsonrps.ServerSessionRouter{handler1, handler2, handler3}
+	session := &jsonrps.Session{ProtocolSignature: "Test Protocol"}
+
+	result := router.CanHandleSession(session)
+
+	if !result {
+		t.Error("Expected router.CanHandleSession to return true when first handler can handle")
+	}
+}
+
+func TestServerSessionRouter_CanHandleSession_LastHandlerMatches(t *testing.T) {
+	// Test CanHandleSession when only the last handler can handle
+	handler1 := &mockServerSessionHandler{canHandle: false}
+	handler2 := &mockServerSessionHandler{canHandle: false}
+	handler3 := &mockServerSessionHandler{canHandle: true}
+
+	router := jsonrps.ServerSessionRouter{handler1, handler2, handler3}
+	session := &jsonrps.Session{ProtocolSignature: "Test Protocol"}
+
+	result := router.CanHandleSession(session)
+
+	if !result {
+		t.Error("Expected router.CanHandleSession to return true when last handler can handle")
+	}
+}
+
+func TestServerSessionRouter_CanHandleSession_MultipleMatches(t *testing.T) {
+	// Test CanHandleSession when multiple handlers can handle (should still return true)
+	handler1 := &mockServerSessionHandler{canHandle: true}
+	handler2 := &mockServerSessionHandler{canHandle: true}
+	handler3 := &mockServerSessionHandler{canHandle: false}
+
+	router := jsonrps.ServerSessionRouter{handler1, handler2, handler3}
+	session := &jsonrps.Session{ProtocolSignature: "Test Protocol"}
+
+	result := router.CanHandleSession(session)
+
+	if !result {
+		t.Error("Expected router.CanHandleSession to return true when multiple handlers can handle")
+	}
+}
+
+func TestServerSessionRouter_CanHandleSession_ChecksAllHandlers(t *testing.T) {
+	// Test that CanHandleSession checks all handlers until it finds one that can handle
+	var checkOrder []int
+
+	handler1 := &mockServerSessionHandlerWithOrder{id: 1, canHandle: false, callOrder: &checkOrder}
+	handler2 := &mockServerSessionHandlerWithOrder{id: 2, canHandle: false, callOrder: &checkOrder}
+	handler3 := &mockServerSessionHandlerWithOrder{id: 3, canHandle: true, callOrder: &checkOrder}
+	handler4 := &mockServerSessionHandlerWithOrder{id: 4, canHandle: true, callOrder: &checkOrder}
+
+	router := jsonrps.ServerSessionRouter{handler1, handler2, handler3, handler4}
+	session := &jsonrps.Session{ProtocolSignature: "Test Protocol"}
+
+	result := router.CanHandleSession(session)
+
+	if !result {
+		t.Error("Expected router.CanHandleSession to return true")
+	}
+
+	// Should have checked handlers 1, 2, and 3 (but not 4, since 3 already matched)
+	expectedOrder := []int{1, 2, 3}
+	if !reflect.DeepEqual(checkOrder, expectedOrder) {
+		t.Errorf("Expected check order %v, got %v", expectedOrder, checkOrder)
+	}
 }
 
 func TestSession_WriteHeader(t *testing.T) {
