@@ -20,5 +20,17 @@ jobs:
         steps:
         - uses: actions/checkout@v5
         - uses: actions/setup-go@v5
-        - name: Test
+        - name: Unit Tests
           run: go test -v -race ./...
+        - name: Acceptance Tests
+          run: |
+            mkdir -p ./_data
+            go run ./example/example-server > ./_data/server.log 2>&1 &
+            timeout 30s go run ./example/example-client | tee ./_data/client.log
+        - name: Upload debug artifacts on failure
+          if: failure()
+          uses: actions/upload-artifact@v4
+          with:
+            name: debug-data-${{ matrix.go-version }}-${{ github.run_number }}
+            path: _data/
+            retention-days: 7
