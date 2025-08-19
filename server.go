@@ -47,8 +47,8 @@ func InitializeServerSession(c net.Conn, logger *slog.Logger) (sess *Session, er
 		}
 		parts := strings.SplitN(line, ": ", 2)
 		if len(parts) < 2 {
-			c.Write([]byte(DefaultProtocolSignature + " 400 Bad Request\r\n\r\n"))
-			c.Close()
+			s.WriteServerHeader(http.StatusBadRequest)
+			s.Close()
 			return
 		}
 		if len(parts) == 2 {

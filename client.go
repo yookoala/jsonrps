@@ -31,7 +31,7 @@ func InitializeClientSession(c net.Conn, h http.Header, l *slog.Logger) (sess *S
 	// Check against the DefaultProtocolSignature
 	if sess.ProtocolSignature != DefaultProtocolSignature {
 		err = errors.New("invalid protocol signature: " + sess.ProtocolSignature)
-		c.Close()
+		sess.Close()
 		return
 	}
 

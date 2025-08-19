@@ -142,6 +142,11 @@ func (sess *Session) Header() http.Header {
 	return sess.LocalHeaders
 }
 
+// Close closes the session connection
+func (sess *Session) Close() error {
+	return sess.Conn.Close()
+}
+
 // SessionHandler is a generic interface for handling sessions
 // on either the client or the server side.
 type SessionHandler interface {
