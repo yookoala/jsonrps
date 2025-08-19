@@ -38,11 +38,12 @@ func InitializeServerSession(c net.Conn, logger *slog.Logger) (sess *Session, er
 	s.Logger.Debug("Start reading header")
 	for {
 		line, err = bufio.NewReader(c).ReadString('\n')
+		line = strings.Trim(line, "\r\n ")
 		s.Logger.Debug("Reading header line", "line", line, "err", err)
 		if err != nil {
 			break
 		}
-		if line == "\n" {
+		if line == "" {
 			break
 		}
 		parts := strings.SplitN(line, ": ", 2)
@@ -53,6 +54,7 @@ func InitializeServerSession(c net.Conn, logger *slog.Logger) (sess *Session, er
 		}
 		if len(parts) == 2 {
 			s.RemoteHeaders.Add(parts[0], strings.TrimSpace(parts[1]))
+			s.Logger.Debug("Parsed header", "key", parts[0], "value", strings.TrimSpace(parts[1]))
 		}
 	}
 	s.Logger.Debug("Finished reading header")
@@ -108,6 +110,9 @@ func (h *defaultServer) CanHandleSession(session *Session) bool {
 // This method runs for the duration of the session, managing the session's
 // request/response lifecycle until the session connection is closed or an error occurs.
 func (h *defaultServer) HandleSession(sess *Session) {
+	sess.Logger.Debug("Handling session", "session_id", sess.ID)
+	sess.WriteServerHeader(http.StatusOK)
+
 	reqQueue := make(chan *JSONRPCRequest, 200)
 	respQueue := make(chan *JSONRPCResponse, 200)
 	sessionDone := make(chan struct{})

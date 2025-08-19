@@ -16,7 +16,7 @@ import (
 func main() {
 	const socketPath = "example.sock"
 	lh := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: slog.LevelDebug,
 	})
 	logger := slog.New(lh)
 
