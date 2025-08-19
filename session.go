@@ -47,11 +47,13 @@ func (sess *Session) WriteClientHeader() {
 	for key, values := range sess.LocalHeaders {
 		for _, value := range values {
 			fmt.Fprintf(sess.Conn, "%s: %s\r\n", key, value)
+			sess.Logger.Debug("Writing header", "key", key, "value", value)
 		}
 	}
 
 	// Finish sending the header over
 	fmt.Fprintf(sess.Conn, "\r\n")
+	sess.Logger.Debug("Writing header finishing mark")
 	sess.headerSent = true
 }
 
