@@ -25,15 +25,7 @@ func InitializeClientSession(c net.Conn, h http.Header, l *slog.Logger) (sess *S
 	}
 
 	// Write the HTTP header without blocking reads
-	go func() {
-		// Write HTTP header to connection
-		for key, values := range h {
-			for _, value := range values {
-				c.Write([]byte(key + ": " + value + "\r\n"))
-			}
-		}
-		c.Write([]byte("\r\n"))
-	}()
+	go sess.WriteClientHeader()
 
 	// Read response for protocol signature
 	// Check against the DefaultProtocolSignature
