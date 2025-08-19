@@ -19,8 +19,13 @@ type Session struct {
 	// by the server of the protocol type and version
 	ProtocolSignature string
 
-	// LocalHeaders is the HTTP headers associated with the session
+	// LocalHeaders is the HTTP headers associated with this side
+	// of this session
 	LocalHeaders http.Header
+
+	// RemoteHeaders is the HTTP headers associated with the other side
+	// of this session
+	RemoteHeaders http.Header
 
 	// Context is the context associated with the session for
 	// cancellation
@@ -36,11 +41,9 @@ type Session struct {
 	headerSent bool
 }
 
-// WriteHeader sends the status code along with response header for the session.
-func (sess *Session) WriteHeader(statusCode int) {
-	fmt.Fprintf(sess.Conn, "%s %d %s\r\n", DefaultProtocolSignature, statusCode, http.StatusText(statusCode))
-
-	// Also write headers to the connection
+// WriteClientHeader sends the local header for the session without any protocol signature
+func (sess *Session) WriteClientHeader() {
+	// Write header fields to the connection
 	for key, values := range sess.LocalHeaders {
 		for _, value := range values {
 			fmt.Fprintf(sess.Conn, "%s: %s\r\n", key, value)
@@ -50,6 +53,12 @@ func (sess *Session) WriteHeader(statusCode int) {
 	// Finish sending the header over
 	fmt.Fprintf(sess.Conn, "\r\n")
 	sess.headerSent = true
+}
+
+// WriteServerHeader sends the status code along with local header for the session.
+func (sess *Session) WriteServerHeader(statusCode int) {
+	fmt.Fprintf(sess.Conn, "%s %d %s\r\n", DefaultProtocolSignature, statusCode, http.StatusText(statusCode))
+	sess.WriteClientHeader()
 }
 
 // Write writes the response body to the session.
@@ -111,10 +120,10 @@ func (sess *Session) ReadResponse() (response *JSONRPCResponse, err error) {
 }
 
 // Header returns the header map that will be sent by
-// [Session.WriteHeader]. The [Header] map also is the mechanism with which
+// [Session.WriteServerHeader]. The [Header] map also is the mechanism with which
 // [Handler] implementations can set HTTP trailers.
 //
-// Changing the header map after a call to [Session.WriteHeader] (or [Session.Write])
+// Changing the header map after a call to [Session.WriteServerHeader] (or [Session.Write])
 // has no effect unless the HTTP status code was of the
 // 1xx class or the modified headers are trailers.
 //

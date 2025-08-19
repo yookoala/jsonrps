@@ -228,7 +228,7 @@ func TestInitializeServerConn_ValidHeaders(t *testing.T) {
 	}
 
 	for key, expectedValue := range expectedHeaders {
-		actualValue := session.LocalHeaders.Get(key)
+		actualValue := session.RemoteHeaders.Get(key)
 		if actualValue != expectedValue {
 			t.Errorf("Expected header %q to be %q, got %q", key, expectedValue, actualValue)
 		}
@@ -256,7 +256,7 @@ func TestInitializeServerConn_SuccessResponse(t *testing.T) {
 	}
 
 	// Verify headers were parsed correctly
-	if session.LocalHeaders.Get("Content-Type") != "application/json" {
+	if session.RemoteHeaders.Get("Content-Type") != "application/json" {
 		t.Errorf("Expected Content-Type 'application/json', got '%s'", session.LocalHeaders.Get("Content-Type"))
 	}
 
@@ -361,12 +361,12 @@ func TestInitializeServerConn_HeaderWithSpacesInValue(t *testing.T) {
 	}
 
 	// Verify headers with spaces in values are parsed correctly
-	contentType := session.LocalHeaders.Get("Content-Type")
+	contentType := session.RemoteHeaders.Get("Content-Type")
 	if contentType != "application/json; charset=utf-8" {
 		t.Errorf("Expected Content-Type to be 'application/json; charset=utf-8', got %q", contentType)
 	}
 
-	userAgent := session.LocalHeaders.Get("User-Agent")
+	userAgent := session.RemoteHeaders.Get("User-Agent")
 	if userAgent != "Test Agent 1.0" {
 		t.Errorf("Expected User-Agent to be 'Test Agent 1.0', got %q", userAgent)
 	}
@@ -444,12 +444,12 @@ func TestInitializeServerConn_HeaderWithTrailingSpaces(t *testing.T) {
 	}
 
 	// Verify trailing spaces are trimmed
-	contentType := session.LocalHeaders.Get("Content-Type")
+	contentType := session.RemoteHeaders.Get("Content-Type")
 	if contentType != "application/json" {
 		t.Errorf("Expected Content-Type to be 'application/json' (trimmed), got %q", contentType)
 	}
 
-	auth := session.LocalHeaders.Get("Authorization")
+	auth := session.RemoteHeaders.Get("Authorization")
 	if auth != "Bearer token" {
 		t.Errorf("Expected Authorization to be 'Bearer token' (trimmed), got %q", auth)
 	}
@@ -465,9 +465,9 @@ func TestNewServer(t *testing.T) {
 
 	// Test with a session that has the default MIME type in Accept header
 	session := &jsonrps.Session{
-		LocalHeaders: make(map[string][]string),
+		RemoteHeaders: make(map[string][]string),
 	}
-	session.LocalHeaders.Set("Accept", jsonrps.DefaultMimeType)
+	session.RemoteHeaders.Set("Accept", jsonrps.DefaultMimeType)
 
 	canHandle := server.CanHandleSession(session)
 	if !canHandle {
@@ -550,10 +550,10 @@ func TestNewServer_HandlingBehavior(t *testing.T) {
 			server := jsonrps.NewServer()
 
 			session := &jsonrps.Session{
-				LocalHeaders: make(map[string][]string),
+				RemoteHeaders: make(map[string][]string),
 			}
 			if tt.acceptType != "" {
-				session.LocalHeaders.Set("Accept", tt.acceptType)
+				session.RemoteHeaders.Set("Accept", tt.acceptType)
 			}
 
 			result := server.CanHandleSession(session)
@@ -571,11 +571,11 @@ func TestNewServer_DetailedHandling(t *testing.T) {
 
 	// Test default MIME type in Accept header - should be handled by defaultServer
 	session1 := &jsonrps.Session{
-		LocalHeaders: make(map[string][]string),
-		Conn:         NewMockConnection(""),
-		Logger:       createTestLogger(t),
+		RemoteHeaders: make(map[string][]string),
+		Conn:          NewMockConnection(""),
+		Logger:        createTestLogger(t),
 	}
-	session1.LocalHeaders.Set("Accept", jsonrps.DefaultMimeType)
+	session1.RemoteHeaders.Set("Accept", jsonrps.DefaultMimeType)
 
 	if !server.CanHandleSession(session1) {
 		t.Error("Expected server to handle session with default MIME type")
@@ -601,11 +601,11 @@ func TestNewServer_DetailedHandling(t *testing.T) {
 
 	// Test unknown MIME type in Accept header - should not be handled by defaultServer
 	session2 := &jsonrps.Session{
-		LocalHeaders: make(map[string][]string),
-		Conn:         NewMockConnection(""),
-		Logger:       createTestLogger(t),
+		RemoteHeaders: make(map[string][]string),
+		Conn:          NewMockConnection(""),
+		Logger:        createTestLogger(t),
 	}
-	session2.LocalHeaders.Set("Accept", "unknown/type")
+	session2.RemoteHeaders.Set("Accept", "unknown/type")
 
 	if server.CanHandleSession(session2) {
 		t.Error("Expected server to not handle session with unknown MIME type")

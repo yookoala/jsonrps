@@ -306,8 +306,8 @@ func TestInitializeClientConn_ReadError(t *testing.T) {
 	}
 
 	// Headers should be empty due to read error
-	if len(session.LocalHeaders) != 0 {
-		t.Errorf("Expected no headers due to read error, got %d", len(session.LocalHeaders))
+	if len(session.RemoteHeaders) != 0 {
+		t.Errorf("Expected no headers due to read error, got %d", len(session.RemoteHeaders))
 	}
 }
 

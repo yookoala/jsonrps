@@ -19,7 +19,8 @@ func InitializeClientSession(c net.Conn, h http.Header, l *slog.Logger) (sess *S
 	sess = &Session{
 		ProtocolSignature: DefaultProtocolSignature,
 		Conn:              c,
-		LocalHeaders:      make(http.Header),
+		LocalHeaders:      h,
+		RemoteHeaders:     make(http.Header),
 		Logger:            l,
 	}
 

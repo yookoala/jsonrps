@@ -28,6 +28,7 @@ func InitializeServerSession(c net.Conn, logger *slog.Logger) (sess *Session, er
 		ProtocolSignature: DefaultProtocolSignature,
 		Conn:              c,
 		LocalHeaders:      make(http.Header),
+		RemoteHeaders:     make(http.Header),
 		Logger:            logger.With("session_id", sid),
 	}
 
@@ -51,7 +52,7 @@ func InitializeServerSession(c net.Conn, logger *slog.Logger) (sess *Session, er
 			return
 		}
 		if len(parts) == 2 {
-			s.LocalHeaders.Add(parts[0], strings.TrimSpace(parts[1]))
+			s.RemoteHeaders.Add(parts[0], strings.TrimSpace(parts[1]))
 		}
 	}
 	s.Logger.Debug("Finished reading header")
@@ -100,7 +101,7 @@ type defaultServer struct {
 
 // CanHandleSession checks if the server can handle the given session.
 func (h *defaultServer) CanHandleSession(session *Session) bool {
-	return session.LocalHeaders.Get("Accept") == h.mimeType
+	return session.RemoteHeaders.Get("Accept") == h.mimeType
 }
 
 // HandleSession handles the incoming session.

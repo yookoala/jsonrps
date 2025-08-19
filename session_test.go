@@ -71,15 +71,19 @@ func (m *mockServerSessionHandler) CanHandleSession(session *jsonrps.Session) bo
 func TestSession_Creation(t *testing.T) {
 	// Test creating a new Session with all fields
 	ctx := context.Background()
-	header := http.Header{
+	localHeader := http.Header{
 		"Content-Type": []string{"application/json"},
 		"User-Agent":   []string{"test-client/1.0"},
+	}
+	remoteHeader := http.Header{
+		"Accept": []string{"application/json"},
 	}
 	conn := &mockReadWriteCloser{readData: "test data"}
 
 	session := &jsonrps.Session{
 		ProtocolSignature: "Test Protocol 1.0",
-		LocalHeaders:      header,
+		LocalHeaders:      localHeader,
+		RemoteHeaders:     remoteHeader,
 		Context:           ctx,
 		Conn:              conn,
 	}
@@ -89,8 +93,12 @@ func TestSession_Creation(t *testing.T) {
 		t.Errorf("Expected ProtocolSignature 'Test Protocol 1.0', got '%s'", session.ProtocolSignature)
 	}
 
-	if !reflect.DeepEqual(session.LocalHeaders, header) {
-		t.Errorf("Expected Header %v, got %v", header, session.LocalHeaders)
+	if !reflect.DeepEqual(session.LocalHeaders, localHeader) {
+		t.Errorf("Expected Header %v, got %v", localHeader, session.LocalHeaders)
+	}
+
+	if !reflect.DeepEqual(session.RemoteHeaders, remoteHeader) {
+		t.Errorf("Expected RemoteHeaders %v, got %v", remoteHeader, session.RemoteHeaders)
 	}
 
 	if session.Context != ctx {
@@ -114,6 +122,10 @@ func TestSession_WithEmptyFields(t *testing.T) {
 		t.Errorf("Expected nil Header, got %v", session.LocalHeaders)
 	}
 
+	if session.RemoteHeaders != nil {
+		t.Errorf("Expected nil RemoteHeaders, got %v", session.RemoteHeaders)
+	}
+
 	if session.Context != nil {
 		t.Errorf("Expected nil Context, got %v", session.Context)
 	}
@@ -133,10 +145,17 @@ func TestSession_FieldManipulation(t *testing.T) {
 	}
 
 	// Test setting and getting Header
-	header := http.Header{"Authorization": []string{"Bearer token123"}}
-	session.LocalHeaders = header
-	if !reflect.DeepEqual(session.LocalHeaders, header) {
-		t.Errorf("Expected Header %v, got %v", header, session.LocalHeaders)
+	localHeader := http.Header{"Authorization": []string{"Bearer token123"}}
+	session.LocalHeaders = localHeader
+	if !reflect.DeepEqual(session.LocalHeaders, localHeader) {
+		t.Errorf("Expected Header %v, got %v", localHeader, session.LocalHeaders)
+	}
+
+	// Test setting and getting RemoteHeaders
+	remoteHeader := http.Header{"X-Request-ID": []string{"xyz-789"}}
+	session.RemoteHeaders = remoteHeader
+	if !reflect.DeepEqual(session.RemoteHeaders, remoteHeader) {
+		t.Errorf("Expected RemoteHeaders %v, got %v", remoteHeader, session.RemoteHeaders)
 	}
 
 	// Test setting and getting Context
@@ -179,6 +198,13 @@ func TestSession_HeaderOperations(t *testing.T) {
 	expectedValues := []string{"application/json", "text/plain"}
 	if !reflect.DeepEqual(acceptValues, expectedValues) {
 		t.Errorf("Expected Accept values %v, got %v", expectedValues, acceptValues)
+	}
+
+	// Test remote headers
+	session.RemoteHeaders = make(http.Header)
+	session.RemoteHeaders.Add("X-Forwarded-For", "192.168.1.1")
+	if session.RemoteHeaders.Get("X-Forwarded-For") != "192.168.1.1" {
+		t.Errorf("Expected X-Forwarded-For '192.168.1.1', got '%s'", session.RemoteHeaders.Get("X-Forwarded-For"))
 	}
 }
 
@@ -759,7 +785,7 @@ func TestSession_WriteHeader(t *testing.T) {
 				Conn:         conn,
 			}
 
-			session.WriteHeader(tt.statusCode)
+			session.WriteServerHeader(tt.statusCode)
 
 			written := conn.writeData.String()
 			// Since header order might vary, we need to verify components
@@ -852,7 +878,7 @@ func TestSession_Write_WithHeadersAlreadySent(t *testing.T) {
 	}
 
 	// Send headers first
-	session.WriteHeader(200)
+	session.WriteServerHeader(200)
 
 	// Now write data - should not prepend \r\n since headers already sent
 	data := []byte("Hello, World!")
@@ -1029,7 +1055,7 @@ func TestSession_WriteHeader_And_Write_Integration(t *testing.T) {
 	}
 
 	// Write header first
-	session.WriteHeader(200)
+	session.WriteServerHeader(200)
 
 	// Then write body
 	body := []byte(`{"status": "success"}`)
@@ -1095,7 +1121,7 @@ func TestSession_HeaderSent_Flag(t *testing.T) {
 		}
 
 		// Call WriteHeader first
-		session.WriteHeader(200)
+		session.WriteServerHeader(200)
 		initialWrite := conn.writeData.String()
 
 		// Now Write should not prepend \r\n
@@ -1138,11 +1164,11 @@ func TestSession_WriteHeader_Multiple_Calls(t *testing.T) {
 	}
 
 	// First WriteHeader call
-	session.WriteHeader(200)
+	session.WriteServerHeader(200)
 	firstResponse := conn.writeData.String()
 
 	// Second WriteHeader call
-	session.WriteHeader(404)
+	session.WriteServerHeader(404)
 	secondResponse := conn.writeData.String()
 
 	// Both responses should be present
@@ -1173,7 +1199,7 @@ func TestSession_Header_Modification_After_WriteHeader(t *testing.T) {
 	session.LocalHeaders.Set("Content-Type", "application/json")
 
 	// Send headers
-	session.WriteHeader(200)
+	session.WriteServerHeader(200)
 	afterHeaderWrite := conn.writeData.String()
 
 	// Modify headers after sending
