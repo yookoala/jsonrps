@@ -19,7 +19,7 @@ func InitializeClientSession(c net.Conn, h http.Header, l *slog.Logger) (sess *S
 	sess = &Session{
 		ProtocolSignature: DefaultProtocolSignature,
 		Conn:              c,
-		Headers:           make(http.Header),
+		LocalHeaders:      make(http.Header),
 		Logger:            l,
 	}
 
@@ -55,7 +55,7 @@ func InitializeClientSession(c net.Conn, h http.Header, l *slog.Logger) (sess *S
 		// Parse header line
 		parts := strings.SplitN(line, ": ", 2)
 		if len(parts) == 2 {
-			sess.Headers.Add(parts[0], strings.TrimSpace(parts[1]))
+			sess.LocalHeaders.Add(parts[0], strings.TrimSpace(parts[1]))
 		}
 	}
 

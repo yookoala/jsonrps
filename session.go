@@ -19,8 +19,8 @@ type Session struct {
 	// by the server of the protocol type and version
 	ProtocolSignature string
 
-	// Headers is the HTTP headers associated with the session
-	Headers http.Header
+	// LocalHeaders is the HTTP headers associated with the session
+	LocalHeaders http.Header
 
 	// Context is the context associated with the session for
 	// cancellation
@@ -41,7 +41,7 @@ func (sess *Session) WriteHeader(statusCode int) {
 	fmt.Fprintf(sess.Conn, "%s %d %s\r\n", DefaultProtocolSignature, statusCode, http.StatusText(statusCode))
 
 	// Also write headers to the connection
-	for key, values := range sess.Headers {
+	for key, values := range sess.LocalHeaders {
 		for _, value := range values {
 			fmt.Fprintf(sess.Conn, "%s: %s\r\n", key, value)
 		}
@@ -128,7 +128,7 @@ func (sess *Session) ReadResponse() (response *JSONRPCResponse, err error) {
 // is to prefix the [Header] map keys with the [TrailerPrefix]
 // constant value.
 func (sess *Session) Header() http.Header {
-	return sess.Headers
+	return sess.LocalHeaders
 }
 
 // SessionHandler is a generic interface for handling sessions

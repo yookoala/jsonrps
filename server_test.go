@@ -228,7 +228,7 @@ func TestInitializeServerConn_ValidHeaders(t *testing.T) {
 	}
 
 	for key, expectedValue := range expectedHeaders {
-		actualValue := session.Headers.Get(key)
+		actualValue := session.LocalHeaders.Get(key)
 		if actualValue != expectedValue {
 			t.Errorf("Expected header %q to be %q, got %q", key, expectedValue, actualValue)
 		}
@@ -256,8 +256,8 @@ func TestInitializeServerConn_SuccessResponse(t *testing.T) {
 	}
 
 	// Verify headers were parsed correctly
-	if session.Headers.Get("Content-Type") != "application/json" {
-		t.Errorf("Expected Content-Type 'application/json', got '%s'", session.Headers.Get("Content-Type"))
+	if session.LocalHeaders.Get("Content-Type") != "application/json" {
+		t.Errorf("Expected Content-Type 'application/json', got '%s'", session.LocalHeaders.Get("Content-Type"))
 	}
 
 	// Verify that NO response was automatically written by InitializeServerSession
@@ -287,12 +287,12 @@ func TestInitializeServerConn_EmptyHeaders(t *testing.T) {
 	}
 
 	// Verify headers is empty but initialized
-	if session.Headers == nil {
+	if session.LocalHeaders == nil {
 		t.Error("Expected session.Headers to be initialized")
 	}
 
-	if len(session.Headers) != 0 {
-		t.Errorf("Expected no headers, got %d", len(session.Headers))
+	if len(session.LocalHeaders) != 0 {
+		t.Errorf("Expected no headers, got %d", len(session.LocalHeaders))
 	}
 
 	// Verify that NO response was automatically written by InitializeServerSession
@@ -361,12 +361,12 @@ func TestInitializeServerConn_HeaderWithSpacesInValue(t *testing.T) {
 	}
 
 	// Verify headers with spaces in values are parsed correctly
-	contentType := session.Headers.Get("Content-Type")
+	contentType := session.LocalHeaders.Get("Content-Type")
 	if contentType != "application/json; charset=utf-8" {
 		t.Errorf("Expected Content-Type to be 'application/json; charset=utf-8', got %q", contentType)
 	}
 
-	userAgent := session.Headers.Get("User-Agent")
+	userAgent := session.LocalHeaders.Get("User-Agent")
 	if userAgent != "Test Agent 1.0" {
 		t.Errorf("Expected User-Agent to be 'Test Agent 1.0', got %q", userAgent)
 	}
@@ -390,8 +390,8 @@ func TestInitializeServerConn_ReadError(t *testing.T) {
 	}
 
 	// If session is returned, headers should be empty due to read error
-	if session != nil && len(session.Headers) != 0 {
-		t.Errorf("Expected no headers due to read error, got %d", len(session.Headers))
+	if session != nil && len(session.LocalHeaders) != 0 {
+		t.Errorf("Expected no headers due to read error, got %d", len(session.LocalHeaders))
 	}
 }
 
@@ -444,12 +444,12 @@ func TestInitializeServerConn_HeaderWithTrailingSpaces(t *testing.T) {
 	}
 
 	// Verify trailing spaces are trimmed
-	contentType := session.Headers.Get("Content-Type")
+	contentType := session.LocalHeaders.Get("Content-Type")
 	if contentType != "application/json" {
 		t.Errorf("Expected Content-Type to be 'application/json' (trimmed), got %q", contentType)
 	}
 
-	auth := session.Headers.Get("Authorization")
+	auth := session.LocalHeaders.Get("Authorization")
 	if auth != "Bearer token" {
 		t.Errorf("Expected Authorization to be 'Bearer token' (trimmed), got %q", auth)
 	}
@@ -465,9 +465,9 @@ func TestNewServer(t *testing.T) {
 
 	// Test with a session that has the default MIME type in Accept header
 	session := &jsonrps.Session{
-		Headers: make(map[string][]string),
+		LocalHeaders: make(map[string][]string),
 	}
-	session.Headers.Set("Accept", jsonrps.DefaultMimeType)
+	session.LocalHeaders.Set("Accept", jsonrps.DefaultMimeType)
 
 	canHandle := server.CanHandleSession(session)
 	if !canHandle {
@@ -550,10 +550,10 @@ func TestNewServer_HandlingBehavior(t *testing.T) {
 			server := jsonrps.NewServer()
 
 			session := &jsonrps.Session{
-				Headers: make(map[string][]string),
+				LocalHeaders: make(map[string][]string),
 			}
 			if tt.acceptType != "" {
-				session.Headers.Set("Accept", tt.acceptType)
+				session.LocalHeaders.Set("Accept", tt.acceptType)
 			}
 
 			result := server.CanHandleSession(session)
@@ -571,11 +571,11 @@ func TestNewServer_DetailedHandling(t *testing.T) {
 
 	// Test default MIME type in Accept header - should be handled by defaultServer
 	session1 := &jsonrps.Session{
-		Headers: make(map[string][]string),
-		Conn:    NewMockConnection(""),
-		Logger:  createTestLogger(t),
+		LocalHeaders: make(map[string][]string),
+		Conn:         NewMockConnection(""),
+		Logger:       createTestLogger(t),
 	}
-	session1.Headers.Set("Accept", jsonrps.DefaultMimeType)
+	session1.LocalHeaders.Set("Accept", jsonrps.DefaultMimeType)
 
 	if !server.CanHandleSession(session1) {
 		t.Error("Expected server to handle session with default MIME type")
@@ -601,11 +601,11 @@ func TestNewServer_DetailedHandling(t *testing.T) {
 
 	// Test unknown MIME type in Accept header - should not be handled by defaultServer
 	session2 := &jsonrps.Session{
-		Headers: make(map[string][]string),
-		Conn:    NewMockConnection(""),
-		Logger:  createTestLogger(t),
+		LocalHeaders: make(map[string][]string),
+		Conn:         NewMockConnection(""),
+		Logger:       createTestLogger(t),
 	}
-	session2.Headers.Set("Accept", "unknown/type")
+	session2.LocalHeaders.Set("Accept", "unknown/type")
 
 	if server.CanHandleSession(session2) {
 		t.Error("Expected server to not handle session with unknown MIME type")
@@ -618,11 +618,11 @@ func TestDefaultServer_HandleSession(t *testing.T) {
 	mockConn := NewMockConnection("")
 
 	session := &jsonrps.Session{
-		Headers: make(map[string][]string),
-		Conn:    mockConn,
-		Logger:  createTestLogger(t),
+		LocalHeaders: make(map[string][]string),
+		Conn:         mockConn,
+		Logger:       createTestLogger(t),
 	}
-	session.Headers.Set("Accept", jsonrps.DefaultMimeType)
+	session.LocalHeaders.Set("Accept", jsonrps.DefaultMimeType)
 
 	// HandleSession should run until the session ends (connection closes)
 	done := make(chan bool)
@@ -670,11 +670,11 @@ func TestDefaultServer_HandleSession_WithMethod(t *testing.T) {
 	mockConn := NewMockConnection(requestJSON)
 
 	session := &jsonrps.Session{
-		Headers: make(map[string][]string),
-		Conn:    mockConn,
-		Logger:  createTestLogger(t),
+		LocalHeaders: make(map[string][]string),
+		Conn:         mockConn,
+		Logger:       createTestLogger(t),
 	}
-	session.Headers.Set("Accept", jsonrps.DefaultMimeType)
+	session.LocalHeaders.Set("Accept", jsonrps.DefaultMimeType)
 
 	// HandleSession should process the request and then end when connection closes
 	done := make(chan bool)
@@ -741,7 +741,7 @@ func TestNotImplementedServerSessionHandler_CanHandleSession(t *testing.T) {
 		{
 			name: "session with headers",
 			session: &jsonrps.Session{
-				Headers: map[string][]string{
+				LocalHeaders: map[string][]string{
 					"Content-Type": {"application/json"},
 				},
 			},
@@ -749,13 +749,13 @@ func TestNotImplementedServerSessionHandler_CanHandleSession(t *testing.T) {
 		{
 			name: "session without headers",
 			session: &jsonrps.Session{
-				Headers: make(map[string][]string),
+				LocalHeaders: make(map[string][]string),
 			},
 		},
 		{
 			name: "session with nil headers",
 			session: &jsonrps.Session{
-				Headers: nil,
+				LocalHeaders: nil,
 			},
 		},
 	}
@@ -776,8 +776,8 @@ func TestNotImplementedServerSessionHandler_HandleSession(t *testing.T) {
 	mockConn := NewMockConnection("")
 
 	session := &jsonrps.Session{
-		Headers: make(map[string][]string),
-		Conn:    mockConn,
+		LocalHeaders: make(map[string][]string),
+		Conn:         mockConn,
 	}
 
 	// Handle the session
@@ -803,7 +803,7 @@ func TestNotImplementedServerSessionHandler_DifferentValues(t *testing.T) {
 	handler3 := jsonrps.NotImplementedServerSessionHandler(-1)
 
 	session := &jsonrps.Session{
-		Headers: make(map[string][]string),
+		LocalHeaders: make(map[string][]string),
 	}
 
 	// All should return true for CanHandleSession
@@ -822,9 +822,9 @@ func TestNotImplementedServerSessionHandler_DifferentValues(t *testing.T) {
 	mockConn2 := NewMockConnection("")
 	mockConn3 := NewMockConnection("")
 
-	session1 := &jsonrps.Session{Headers: make(map[string][]string), Conn: mockConn1}
-	session2 := &jsonrps.Session{Headers: make(map[string][]string), Conn: mockConn2}
-	session3 := &jsonrps.Session{Headers: make(map[string][]string), Conn: mockConn3}
+	session1 := &jsonrps.Session{LocalHeaders: make(map[string][]string), Conn: mockConn1}
+	session2 := &jsonrps.Session{LocalHeaders: make(map[string][]string), Conn: mockConn2}
+	session3 := &jsonrps.Session{LocalHeaders: make(map[string][]string), Conn: mockConn3}
 
 	handler1.HandleSession(session1)
 	handler2.HandleSession(session2)
@@ -858,10 +858,10 @@ func TestServerSessionHandlers_AsRouter(t *testing.T) {
 
 	// Test with default MIME type - should match handler2 (NewServer)
 	session1 := &jsonrps.Session{
-		Headers: make(map[string][]string),
-		Conn:    NewMockConnection(""),
+		LocalHeaders: make(map[string][]string),
+		Conn:         NewMockConnection(""),
 	}
-	session1.Headers.Set("Accept", jsonrps.DefaultMimeType)
+	session1.LocalHeaders.Set("Accept", jsonrps.DefaultMimeType)
 
 	if !router.CanHandleSession(session1) {
 		t.Error("Expected router to handle session with default MIME type")
@@ -869,10 +869,10 @@ func TestServerSessionHandlers_AsRouter(t *testing.T) {
 
 	// Test with unknown MIME type - should match handler1 (NotImplementedServerSessionHandler)
 	session2 := &jsonrps.Session{
-		Headers: make(map[string][]string),
-		Conn:    NewMockConnection(""),
+		LocalHeaders: make(map[string][]string),
+		Conn:         NewMockConnection(""),
 	}
-	session2.Headers.Set("Accept", "unknown/type")
+	session2.LocalHeaders.Set("Accept", "unknown/type")
 
 	if !router.CanHandleSession(session2) {
 		t.Error("Expected router to handle session with unknown MIME type via NotImplementedServerSessionHandler")

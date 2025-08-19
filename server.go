@@ -27,15 +27,17 @@ func InitializeServerSession(c net.Conn, logger *slog.Logger) (sess *Session, er
 		ID:                sid,
 		ProtocolSignature: DefaultProtocolSignature,
 		Conn:              c,
-		Headers:           make(http.Header),
+		LocalHeaders:      make(http.Header),
 		Logger:            logger.With("session_id", sid),
 	}
 
 	// Read each line as if it is HTTP header into sess.Headers
 	// and stop when reaching "\n\n"
 	var line string
+	s.Logger.Debug("Start reading header")
 	for {
 		line, err = bufio.NewReader(c).ReadString('\n')
+		s.Logger.Debug("Reading header line", "line", line, "err", err)
 		if err != nil {
 			break
 		}
@@ -49,9 +51,10 @@ func InitializeServerSession(c net.Conn, logger *slog.Logger) (sess *Session, er
 			return
 		}
 		if len(parts) == 2 {
-			s.Headers.Add(parts[0], strings.TrimSpace(parts[1]))
+			s.LocalHeaders.Add(parts[0], strings.TrimSpace(parts[1]))
 		}
 	}
+	s.Logger.Debug("Finished reading header")
 
 	sess = s
 	return
@@ -97,7 +100,7 @@ type defaultServer struct {
 
 // CanHandleSession checks if the server can handle the given session.
 func (h *defaultServer) CanHandleSession(session *Session) bool {
-	return session.Headers.Get("Accept") == h.mimeType
+	return session.LocalHeaders.Get("Accept") == h.mimeType
 }
 
 // HandleSession handles the incoming session.

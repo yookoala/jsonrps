@@ -79,7 +79,7 @@ func TestSession_Creation(t *testing.T) {
 
 	session := &jsonrps.Session{
 		ProtocolSignature: "Test Protocol 1.0",
-		Headers:           header,
+		LocalHeaders:      header,
 		Context:           ctx,
 		Conn:              conn,
 	}
@@ -89,8 +89,8 @@ func TestSession_Creation(t *testing.T) {
 		t.Errorf("Expected ProtocolSignature 'Test Protocol 1.0', got '%s'", session.ProtocolSignature)
 	}
 
-	if !reflect.DeepEqual(session.Headers, header) {
-		t.Errorf("Expected Header %v, got %v", header, session.Headers)
+	if !reflect.DeepEqual(session.LocalHeaders, header) {
+		t.Errorf("Expected Header %v, got %v", header, session.LocalHeaders)
 	}
 
 	if session.Context != ctx {
@@ -110,8 +110,8 @@ func TestSession_WithEmptyFields(t *testing.T) {
 		t.Errorf("Expected empty ProtocolSignature, got '%s'", session.ProtocolSignature)
 	}
 
-	if session.Headers != nil {
-		t.Errorf("Expected nil Header, got %v", session.Headers)
+	if session.LocalHeaders != nil {
+		t.Errorf("Expected nil Header, got %v", session.LocalHeaders)
 	}
 
 	if session.Context != nil {
@@ -134,9 +134,9 @@ func TestSession_FieldManipulation(t *testing.T) {
 
 	// Test setting and getting Header
 	header := http.Header{"Authorization": []string{"Bearer token123"}}
-	session.Headers = header
-	if !reflect.DeepEqual(session.Headers, header) {
-		t.Errorf("Expected Header %v, got %v", header, session.Headers)
+	session.LocalHeaders = header
+	if !reflect.DeepEqual(session.LocalHeaders, header) {
+		t.Errorf("Expected Header %v, got %v", header, session.LocalHeaders)
 	}
 
 	// Test setting and getting Context
@@ -156,26 +156,26 @@ func TestSession_FieldManipulation(t *testing.T) {
 
 func TestSession_HeaderOperations(t *testing.T) {
 	session := &jsonrps.Session{
-		Headers: make(http.Header),
+		LocalHeaders: make(http.Header),
 	}
 
 	// Test adding headers
-	session.Headers.Add("Content-Type", "application/json")
-	session.Headers.Add("Authorization", "Bearer abc123")
+	session.LocalHeaders.Add("Content-Type", "application/json")
+	session.LocalHeaders.Add("Authorization", "Bearer abc123")
 
-	if session.Headers.Get("Content-Type") != "application/json" {
-		t.Errorf("Expected Content-Type 'application/json', got '%s'", session.Headers.Get("Content-Type"))
+	if session.LocalHeaders.Get("Content-Type") != "application/json" {
+		t.Errorf("Expected Content-Type 'application/json', got '%s'", session.LocalHeaders.Get("Content-Type"))
 	}
 
-	if session.Headers.Get("Authorization") != "Bearer abc123" {
-		t.Errorf("Expected Authorization 'Bearer abc123', got '%s'", session.Headers.Get("Authorization"))
+	if session.LocalHeaders.Get("Authorization") != "Bearer abc123" {
+		t.Errorf("Expected Authorization 'Bearer abc123', got '%s'", session.LocalHeaders.Get("Authorization"))
 	}
 
 	// Test setting multiple values for same header
-	session.Headers.Add("Accept", "application/json")
-	session.Headers.Add("Accept", "text/plain")
+	session.LocalHeaders.Add("Accept", "application/json")
+	session.LocalHeaders.Add("Accept", "text/plain")
 
-	acceptValues := session.Headers["Accept"]
+	acceptValues := session.LocalHeaders["Accept"]
 	expectedValues := []string{"application/json", "text/plain"}
 	if !reflect.DeepEqual(acceptValues, expectedValues) {
 		t.Errorf("Expected Accept values %v, got %v", expectedValues, acceptValues)
@@ -755,8 +755,8 @@ func TestSession_WriteHeader(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			conn := &mockReadWriteCloser{}
 			session := &jsonrps.Session{
-				Headers: tt.headers,
-				Conn:    conn,
+				LocalHeaders: tt.headers,
+				Conn:         conn,
 			}
 
 			session.WriteHeader(tt.statusCode)
@@ -845,7 +845,7 @@ func TestSession_Write_WithHeadersAlreadySent(t *testing.T) {
 	// Test writing when headers have already been sent via WriteHeader
 	conn := &mockReadWriteCloser{}
 	session := &jsonrps.Session{
-		Headers: http.Header{
+		LocalHeaders: http.Header{
 			"Content-Type": []string{"application/json"},
 		},
 		Conn: conn,
@@ -975,7 +975,7 @@ func TestSession_Header(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			session := &jsonrps.Session{
-				Headers: tt.headers,
+				LocalHeaders: tt.headers,
 			}
 
 			result := session.Header()
@@ -987,9 +987,9 @@ func TestSession_Header(t *testing.T) {
 			// Verify it returns the same reference (not a copy) for non-nil headers
 			if tt.headers != nil {
 				// Test that modifications to the returned header affect the session
-				originalLen := len(session.Headers)
+				originalLen := len(session.LocalHeaders)
 				result.Set("Test-Header", "test-value")
-				if len(session.Headers) == originalLen && session.Headers.Get("Test-Header") != "test-value" {
+				if len(session.LocalHeaders) == originalLen && session.LocalHeaders.Get("Test-Header") != "test-value" {
 					t.Error("Expected Header() to return reference to same header map")
 				}
 			}
@@ -1000,7 +1000,7 @@ func TestSession_Header(t *testing.T) {
 func TestSession_Header_Modification(t *testing.T) {
 	// Test that modifying the returned header affects the session
 	session := &jsonrps.Session{
-		Headers: make(http.Header),
+		LocalHeaders: make(http.Header),
 	}
 
 	header := session.Header()
@@ -1008,11 +1008,11 @@ func TestSession_Header_Modification(t *testing.T) {
 	header.Add("Accept", "text/plain")
 
 	// Verify the session's headers were modified
-	if session.Headers.Get("Content-Type") != "application/json" {
+	if session.LocalHeaders.Get("Content-Type") != "application/json" {
 		t.Error("Expected session headers to be modified when Header() result is modified")
 	}
 
-	if session.Headers.Get("Accept") != "text/plain" {
+	if session.LocalHeaders.Get("Accept") != "text/plain" {
 		t.Error("Expected session headers to be modified when Header() result is modified")
 	}
 }
@@ -1021,7 +1021,7 @@ func TestSession_WriteHeader_And_Write_Integration(t *testing.T) {
 	// Test using WriteHeader followed by Write
 	conn := &mockReadWriteCloser{}
 	session := &jsonrps.Session{
-		Headers: http.Header{
+		LocalHeaders: http.Header{
 			"Content-Type":   []string{"application/json"},
 			"Content-Length": []string{"26"},
 		},
@@ -1090,8 +1090,8 @@ func TestSession_HeaderSent_Flag(t *testing.T) {
 	t.Run("after WriteHeader", func(t *testing.T) {
 		conn := &mockReadWriteCloser{}
 		session := &jsonrps.Session{
-			Headers: http.Header{"Content-Type": []string{"text/plain"}},
-			Conn:    conn,
+			LocalHeaders: http.Header{"Content-Type": []string{"text/plain"}},
+			Conn:         conn,
 		}
 
 		// Call WriteHeader first
@@ -1133,8 +1133,8 @@ func TestSession_WriteHeader_Multiple_Calls(t *testing.T) {
 	// Test multiple calls to WriteHeader (should send headers each time)
 	conn := &mockReadWriteCloser{}
 	session := &jsonrps.Session{
-		Headers: http.Header{"Content-Type": []string{"application/json"}},
-		Conn:    conn,
+		LocalHeaders: http.Header{"Content-Type": []string{"application/json"}},
+		Conn:         conn,
 	}
 
 	// First WriteHeader call
@@ -1165,20 +1165,20 @@ func TestSession_Header_Modification_After_WriteHeader(t *testing.T) {
 	// Test that header modifications after WriteHeader don't affect sent headers
 	conn := &mockReadWriteCloser{}
 	session := &jsonrps.Session{
-		Headers: make(http.Header),
-		Conn:    conn,
+		LocalHeaders: make(http.Header),
+		Conn:         conn,
 	}
 
 	// Set initial header
-	session.Headers.Set("Content-Type", "application/json")
+	session.LocalHeaders.Set("Content-Type", "application/json")
 
 	// Send headers
 	session.WriteHeader(200)
 	afterHeaderWrite := conn.writeData.String()
 
 	// Modify headers after sending
-	session.Headers.Set("Content-Type", "text/plain")
-	session.Headers.Set("New-Header", "new-value")
+	session.LocalHeaders.Set("Content-Type", "text/plain")
+	session.LocalHeaders.Set("New-Header", "new-value")
 
 	// Write body
 	session.Write([]byte("test body"))

@@ -238,12 +238,12 @@ func TestInitializeClientConn_WithResponseHeaders(t *testing.T) {
 	}
 
 	// Verify response headers were parsed into session
-	contentType := session.Headers.Get("Content-Type")
+	contentType := session.LocalHeaders.Get("Content-Type")
 	if contentType != "application/json" {
 		t.Errorf("Expected Content-Type to be 'application/json', got %q", contentType)
 	}
 
-	server := session.Headers.Get("Server")
+	server := session.LocalHeaders.Get("Server")
 	if server != "Test Server 1.0" {
 		t.Errorf("Expected Server to be 'Test Server 1.0', got %q", server)
 	}
@@ -306,8 +306,8 @@ func TestInitializeClientConn_ReadError(t *testing.T) {
 	}
 
 	// Headers should be empty due to read error
-	if len(session.Headers) != 0 {
-		t.Errorf("Expected no headers due to read error, got %d", len(session.Headers))
+	if len(session.LocalHeaders) != 0 {
+		t.Errorf("Expected no headers due to read error, got %d", len(session.LocalHeaders))
 	}
 }
 
@@ -332,12 +332,12 @@ func TestInitializeClientConn_HeadersWithSpaces(t *testing.T) {
 	}
 
 	// Verify headers with spaces in values are parsed correctly
-	contentType := session.Headers.Get("Content-Type")
+	contentType := session.LocalHeaders.Get("Content-Type")
 	if contentType != "application/json; charset=utf-8" {
 		t.Errorf("Expected Content-Type to be 'application/json; charset=utf-8', got %q", contentType)
 	}
 
-	cacheControl := session.Headers.Get("Cache-Control")
+	cacheControl := session.LocalHeaders.Get("Cache-Control")
 	if cacheControl != "no-cache, no-store" {
 		t.Errorf("Expected Cache-Control to be 'no-cache, no-store', got %q", cacheControl)
 	}
@@ -364,12 +364,12 @@ func TestInitializeClientConn_HeadersWithTrailingSpaces(t *testing.T) {
 	}
 
 	// Verify trailing spaces are trimmed
-	contentType := session.Headers.Get("Content-Type")
+	contentType := session.LocalHeaders.Get("Content-Type")
 	if contentType != "application/json" {
 		t.Errorf("Expected Content-Type to be 'application/json' (trimmed), got %q", contentType)
 	}
 
-	server := session.Headers.Get("Server")
+	server := session.LocalHeaders.Get("Server")
 	if server != "Test Server" {
 		t.Errorf("Expected Server to be 'Test Server' (trimmed), got %q", server)
 	}
