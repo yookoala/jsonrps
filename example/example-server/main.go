@@ -27,7 +27,10 @@ func ping(_ context.Context, req *jsonrps.JSONRPCRequest) (*jsonrps.JSONRPCRespo
 
 func main() {
 	const socketPath = "example.sock"
-	logger := slog.Default()
+	lh := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+	logger := slog.New(lh)
 
 	// Remove socket file if it already exists
 	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
@@ -125,7 +128,6 @@ func main() {
 			sess, err := jsonrps.InitializeServerSession(conn, logger)
 			if err != nil {
 				sess.Logger.Error("Error initializing session", "error", err)
-				return
 			}
 			go func() {
 				server.HandleSession(sess)
